@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,7 +8,11 @@
   <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.0.0/dist/aframe-extras.min.js"></script>
   <style>
-    body { margin: 0; overflow: hidden; }
+    body {
+      margin: 0;
+      overflow: hidden;
+    }
+
     #hud {
       position: fixed;
       top: 20px;
@@ -20,6 +25,7 @@
       border-radius: 8px;
       z-index: 1000;
     }
+
     #startScreen {
       position: fixed;
       top: 0;
@@ -34,17 +40,20 @@
       z-index: 2000;
       font-family: 'Arial', sans-serif;
     }
+
     #startScreen h1 {
       font-size: 64px;
       color: #00d4ff;
       text-shadow: 0 0 20px #00d4ff;
       margin-bottom: 20px;
     }
+
     #startScreen p {
       font-size: 20px;
       color: #ffffff;
       margin: 10px 0;
     }
+
     #startButton {
       margin-top: 30px;
       padding: 20px 40px;
@@ -57,12 +66,14 @@
       box-shadow: 0 0 30px rgba(0, 212, 255, 0.5);
       transition: all 0.3s;
     }
+
     #startButton:hover {
       transform: scale(1.1);
       box-shadow: 0 0 50px rgba(0, 212, 255, 0.8);
     }
   </style>
 </head>
+
 <body>
   <!-- スタート画面 -->
   <div id="startScreen">
@@ -80,59 +91,59 @@
     <div>時間: <span id="timer">0</span>秒</div>
   </div>
 
-  <a-scene background="color: #87CEEB" stats>
+  <a-scene background="color: #050510" stats>
     <!-- カメラ・VRリグ -->
     <a-entity id="rig" movement-controls="fly: false; speed: 0.15">
       <a-entity camera position="0 1.6 0" look-controls>
         <a-entity cursor="fuse: false; rayOrigin: mouse"></a-entity>
       </a-entity>
-      
+
       <!-- 左手コントローラー -->
-      <a-entity id="leftHand" 
-                oculus-touch-controls="hand: left"
-                vive-controls="hand: left"
-                windows-motion-controls="hand: left"
-                weapon-controller="hand: left">
+      <a-entity id="leftHand" oculus-touch-controls="hand: left" vive-controls="hand: left"
+        windows-motion-controls="hand: left" weapon-controller="hand: left">
       </a-entity>
-      
+
       <!-- 右手コントローラー -->
-      <a-entity id="rightHand"
-                oculus-touch-controls="hand: right"
-                vive-controls="hand: right"
-                windows-motion-controls="hand: right"
-                weapon-controller="hand: right">
+      <a-entity id="rightHand" oculus-touch-controls="hand: right" vive-controls="hand: right"
+        windows-motion-controls="hand: right" weapon-controller="hand: right">
       </a-entity>
     </a-entity>
 
-    <!-- ライティング -->
-    <a-light type="ambient" intensity="0.6"></a-light>
-    <a-light type="directional" position="5 10 5" intensity="0.8"></a-light>
+    <!-- ライティング (サイバーパンク風) -->
+    <a-light type="ambient" intensity="0.2"></a-light>
+    <a-light type="point" position="5 10 5" intensity="0.5" color="#00d4ff" distance="50"></a-light>
+    <a-light type="point" position="-5 10 -5" intensity="0.5" color="#ff00ff" distance="50"></a-light>
 
-    <!-- 地面（宇宙船風の無機質な床） -->
-    <a-plane position="0 0 0" rotation="-90 0 0" width="50" height="50" 
-             color="#2a2a3a" metalness="0.8" roughness="0.2"></a-plane>
-    
-    <!-- グリッド線 -->
-    <a-plane position="0 0.01 0" rotation="-90 0 0" width="50" height="50"
-             material="src: url(#grid); repeat: 25 25; transparent: true; opacity: 0.3"></a-plane>
+    <!-- 地面（無限グリッド風） -->
+    <a-gridhelper size="100" divisions="50" colorCenterLine="#00d4ff" colorGrid="#1a1a2e"
+      position="0 0 0"></a-gridhelper>
+    <a-plane position="0 -0.01 0" rotation="-90 0 0" width="100" height="100" color="#000000"
+      material="roughness: 1; metalness: 0"></a-plane>
 
-    <!-- 壁（宇宙船のコンテナ風） -->
-    <a-box position="-25 2 0" width="0.5" height="4" depth="50" color="#1a1a2e"></a-box>
-    <a-box position="25 2 0" width="0.5" height="4" depth="50" color="#1a1a2e"></a-box>
-    <a-box position="0 2 -25" width="50" height="4" depth="0.5" color="#1a1a2e"></a-box>
-    <a-box position="0 2 25" width="50" height="4" depth="0.5" color="#1a1a2e"></a-box>
+    <!-- 環境演出：浮遊する幾何学デブリ -->
+    <a-entity position="0 0 0"
+      particle-system="preset: dust; particleCount: 500; color: #00d4ff, #ff00ff; size: 0.05; maxAge: 10;"></a-entity>
+
+    <!-- 遠景の巨大構造物（雰囲気） -->
+    <a-dodecahedron position="-30 20 -40" radius="10" color="#00d4ff"
+      material="wireframe: true; transparent: true; opacity: 0.1"
+      animation="property: rotation; to: 360 360 0; loop: true; dur: 60000; easing: linear"></a-dodecahedron>
+    <a-octahedron position="30 10 -30" radius="8" color="#ff00ff"
+      material="wireframe: true; transparent: true; opacity: 0.1"
+      animation="property: rotation; to: -360 360 0; loop: true; dur: 50000; easing: linear"></a-octahedron>
   </a-scene>
 
   <!-- グリッドテクスチャ -->
   <svg id="grid" xmlns="http://www.w3.org/2000/svg" width="100" height="100" style="display: none;">
     <defs>
       <pattern id="grid-pattern" width="10" height="10" patternUnits="userSpaceOnUse">
-        <path d="M 10 0 L 0 0 0 10" fill="none" stroke="#00d4ff" stroke-width="0.5"/>
+        <path d="M 10 0 L 0 0 0 10" fill="none" stroke="#00d4ff" stroke-width="0.5" />
       </pattern>
     </defs>
-    <rect width="100" height="100" fill="url(#grid-pattern)"/>
+    <rect width="100" height="100" fill="url(#grid-pattern)" />
   </svg>
 
   <script src="game.js"></script>
 </body>
+
 </html>
