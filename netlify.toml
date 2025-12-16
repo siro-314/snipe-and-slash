@@ -1,4 +1,4 @@
-/* publish = "." */
+# Netlify configuration for SNIPE & SLASH
 
 [[headers]]
   for = "/*"
