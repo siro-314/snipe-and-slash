@@ -30,49 +30,97 @@ AFRAME.registerComponent('sword', {
   },
 
   init: function () {
-    // === 剣のビジュアル改修: サイバーブレード ===
+    // === 剣のビジュアル改修 V2: 本気の清書モード (Hollow Energy Katana) ===
     const container = new THREE.Object3D();
 
-    // 1. グリップ（黒マット）
-    const gripGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.15, 12);
-    const gripMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8 });
+    // --- 1. Grip (柄) ---
+    // マットブラックの角ばったグリップ
+    const gripGeo = new THREE.BoxGeometry(0.025, 0.03, 0.25);
+    const gripMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.7, metalness: 0.3 });
     const grip = new THREE.Mesh(gripGeo, gripMat);
-    grip.rotation.x = Math.PI / 2;
-    grip.position.z = 0.05; // 手の少し前
+    grip.position.z = 0.1; // 手のひら位置調整
     container.add(grip);
 
-    // 2. ガード（鍔）: 発光リング
-    const guardGeo = new THREE.TorusGeometry(0.03, 0.005, 8, 24);
-    const guardMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
-    const guard = new THREE.Mesh(guardGeo, guardMat);
-    guard.position.z = -0.03; // ブレードの根元
-    container.add(guard);
+    // 青いLEDインジケーター
+    const ledGeo = new THREE.BoxGeometry(0.01, 0.005, 0.03);
+    const ledMat = new THREE.MeshBasicMaterial({ color: 0x00d4ff });
+    const led = new THREE.Mesh(ledGeo, ledMat);
+    led.position.set(0, 0.016, 0.15); // グリップの上部手前
+    container.add(led);
 
-    // 3. ブレード（半透明エネルギー刃）
-    const bladeGeo = new THREE.BoxGeometry(0.04, 0.8, 0.005);
-    // Tipを尖らせるためにGeometry操作もできるが、まずはBoxで
+    // --- 2. Blade (刃) - 中空構造の実現 ---
+    // Shapeを作成して押し出すアプローチ
+    const bladeLength = 1.2; // 長く！(野太刀サイズ)
+    const bladeWidth = 0.06;
+    const holeWidth = 0.025; // 中空部分の幅
+
+    const shape = new THREE.Shape();
+
+    // 外側の輪郭 (緩やかなカーブを描く刀身)
+    shape.moveTo(0, 0);
+    shape.lineTo(bladeWidth, 0); // 根本の幅
+    // 刃先に向かって緩やかに細くなるカーブ
+    shape.lineTo(bladeWidth * 0.8, bladeLength * 0.6);
+    shape.lineTo(0, bladeLength); // 切っ先 (鋭利に)
+    shape.lineTo(0, 0); // 背側は真っ直ぐ
+
+    // 内側の穴 (Hollow design)
+    const holePath = new THREE.Path();
+    const margin = 0.01; // 縁の厚み
+    const holeLen = bladeLength * 0.85;
+
+    holePath.moveTo(margin, margin * 2);
+    holePath.lineTo(bladeWidth - margin, margin * 2);
+    holePath.lineTo((bladeWidth * 0.8) - margin, holeLen * 0.6);
+    holePath.lineTo(margin, holeLen); // 穴の先端
+    holePath.lineTo(margin, margin * 2);
+
+    shape.holes.push(holePath);
+
+    // 押し出し設定 (薄いエネルギー体)
+    const extrudeSettings = {
+      steps: 1,
+      depth: 0.005, // 薄さ
+      bevelEnabled: true,
+      bevelThickness: 0.002,
+      bevelSize: 0.002,
+      bevelSegments: 2
+    };
+
+    const bladeGeo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+
+    // マテリアル (Cyber Neon)
+    // 透過度高め、発光強め
     const bladeMat = new THREE.MeshPhysicalMaterial({
-      color: 0x00d4ff,
+      color: 0x00ffcc, // Cyan-Teal mix
+      emissive: 0x00ffcc,
+      emissiveIntensity: 3,
       transparent: true,
-      opacity: 0.6,
-      transmission: 0.5, // ガラス感
-      emissive: 0x00d4ff,
-      emissiveIntensity: 2,
-      side: THREE.DoubleSide
+      opacity: 0.7,
+      transmission: 0.2,
+      side: THREE.DoubleSide,
+      metalness: 0.8,
+      roughness: 0
     });
-    const blade = new THREE.Mesh(bladeGeo, bladeMat);
-    blade.rotation.x = Math.PI / 2;
-    blade.position.z = -0.45; // グリップの先
-    container.add(blade);
 
-    // 4. トレイル用ダミー（後で実装可能なら）
-    // とりあえずブレードの中に芯を通す（高輝度）
-    const coreGeo = new THREE.BoxGeometry(0.02, 0.75, 0.002);
-    const coreMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const core = new THREE.Mesh(coreGeo, coreMat);
-    core.rotation.x = Math.PI / 2;
-    core.position.z = -0.45;
-    container.add(core);
+    const blade = new THREE.Mesh(bladeGeo, bladeMat);
+
+    // 位置合わせ (ExtrudeはZ方向に押し出すので回転させる)
+    blade.rotation.x = -Math.PI / 2; // 寝かせる
+    blade.rotation.z = -Math.PI / 2; // 刃を前に向ける
+    // 刃の背を中心に合わせる調整
+    blade.position.set(0, 0, -0.05);
+
+    // 刃の向きを修正（切っ先が前）
+    // Shapeの座標系とThree.jsの座標系の整合性を取るためコンテナに入れる
+    const bladePivot = new THREE.Object3D();
+    bladePivot.add(blade);
+    // グリップの先端から伸びるように
+    bladePivot.position.z = -0.05;
+    bladePivot.rotation.x = Math.PI; // 上下反転（刃のカーブを適切な向きに）
+    bladePivot.rotation.z = Math.PI;
+
+    container.add(bladePivot);
 
     this.el.setObject3D('mesh', container);
 
