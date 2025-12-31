@@ -85,45 +85,48 @@ AFRAME.registerComponent('sword', {
 
   init: function () {
     this.modelLoaded = false;
-    this.loadModel();
+    this.retryTimer = 0;
+
+    // まずフォールバックを表示しておく
+    this.createFallbackGeometry();
+
+    // モデルロード試行
+    this.tryLoadModel();
   },
 
-  loadModel: function () {
+  tryLoadModel: function () {
     const model = ModelManager.getClone('sword');
 
     if (model) {
-      // GLBモデル使用
-      model.scale.set(1, 1, 1); // サイズ調整（必要に応じて変更）
-      model.rotation.x = -Math.PI / 2; // 向き調整
+      // GLBモデル使用（ユーザー作成済みでスケール調整不要）
+      model.scale.set(1, 1, 1);
+      model.rotation.x = -Math.PI / 2;
+
+      // 既存のメッシュ（フォールバック）を削除して差し替え
+      if (this.el.getObject3D('mesh')) {
+        this.el.removeObject3D('mesh');
+      }
       this.el.setObject3D('mesh', model);
+
       this.modelLoaded = true;
-      console.log('[sword] Using GLB model');
-    } else {
-      // フォールバック: 既存のコード生成ジオメトリ
-      console.warn('[sword] GLB not available, using fallback geometry');
-      this.createFallbackGeometry();
+      console.log('[sword] Switched to GLB model');
+
+      // 当たり判定用に刃の参照を更新（モデル構造に依存するため、適切な子要素を探すか全体を使う）
+      // ここでは全体を当たり判定対象とする
+      this.blade = model;
     }
   },
 
   createFallbackGeometry: function () {
-    // === 剣のビジュアル改修 V2: 本気の清書モード (Hollow Energy Katana) ===
+    // === フォールバック: 旧来のコード生成剣 ===
     const container = new THREE.Object3D();
 
-    // --- 1. Grip (柄) ---
     const gripGeo = new THREE.BoxGeometry(0.025, 0.03, 0.25);
     const gripMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.7, metalness: 0.3 });
     const grip = new THREE.Mesh(gripGeo, gripMat);
     grip.position.z = 0.1;
     container.add(grip);
 
-    // 青いLEDインジケーター
-    const ledGeo = new THREE.BoxGeometry(0.01, 0.005, 0.03);
-    const ledMat = new THREE.MeshBasicMaterial({ color: 0x00d4ff });
-    const led = new THREE.Mesh(ledGeo, ledMat);
-    led.position.set(0, 0.016, 0.15);
-    container.add(led);
-
-    // --- 2. Blade (刃) - シンプル版 ---
     const bladeGeo = new THREE.BoxGeometry(0.06, 0.01, 1.2);
     const bladeMat = new THREE.MeshPhysicalMaterial({
       color: 0x00ffcc,
@@ -131,9 +134,7 @@ AFRAME.registerComponent('sword', {
       emissiveIntensity: 3,
       transparent: true,
       opacity: 0.7,
-      side: THREE.DoubleSide,
-      metalness: 0.8,
-      roughness: 0
+      side: THREE.DoubleSide
     });
     const blade = new THREE.Mesh(bladeGeo, bladeMat);
     blade.position.z = -0.55;
@@ -143,8 +144,15 @@ AFRAME.registerComponent('sword', {
     this.blade = blade;
   },
 
-  tick: function () {
-    // 剣の振り判定はここで実装予定
+  tick: function (time, delta) {
+    // モデル未ロードなら定期的にチェックして差し替え
+    if (!this.modelLoaded) {
+      this.retryTimer += delta;
+      if (this.retryTimer > 500) { // 0.5秒ごとにチェック
+        this.retryTimer = 0;
+        this.tryLoadModel();
+      }
+    }
   }
 });
 
@@ -865,18 +873,47 @@ AFRAME.registerComponent('weapon-controller', {
   },
 
   checkSwordHit: function () {
-    const swordPos = this.weaponEntity.object3D.getWorldPosition(new THREE.Vector3());
+    if (!this.weaponEntity) return;
 
-    // 全ての敵との距離をチェック
+    // swordコンポーネントからblade（当たり判定用メッシュ）を取得
+    const swordComp = this.weaponEntity.components.sword;
+    if (!swordComp || !swordComp.blade) return;
+
+    // 剣の当たり判定ボックスを更新
+    const swordMesh = swordComp.blade;
+    const swordBox = new THREE.Box3().setFromObject(swordMesh);
+
+    // 全ての敵との接触判定
     GameState.enemies.forEach(enemy => {
-      if (!enemy.el) return;
+      const enemyEl = enemy.el;
+      if (!enemyEl) return;
 
-      const enemyPos = enemy.el.object3D.position;
-      const distance = swordPos.distanceTo(enemyPos);
+      const enemyMesh = enemyEl.getObject3D('mesh');
+      if (!enemyMesh) return;
 
-      // 剣の射程内なら攻撃ヒット
-      if (distance < 1.0) {
-        enemy.takeDamage();
+      const enemyBox = new THREE.Box3().setFromObject(enemyMesh);
+
+      // 交差判定 (intersectsBox)
+      if (swordBox.intersectsBox(enemyBox)) {
+        // ヒットした場合のクールダウン処理（多段ヒット防止）
+        const now = Date.now();
+        if (!enemy.lastHitTime || now - enemy.lastHitTime > 400) {
+          enemy.takeDamage();
+          enemy.lastHitTime = now;
+
+          // ヒット時の振動（Haptics）
+          const gamepads = navigator.getGamepads();
+          if (gamepads) {
+            for (let i = 0; i < gamepads.length; i++) {
+              const gp = gamepads[i];
+              if (gp && gp.hapticActuators && gp.hapticActuators.length > 0) {
+                gp.hapticActuators[0].pulse(1.0, 50);
+              }
+            }
+          }
+
+          console.log('Sword SLASH Hit!');
+        }
       }
     });
   }
