@@ -12,6 +12,60 @@ const GameState = {
 };
 
 // ========================================
+// GLBモデル管理（疎結合・エラーログ付き）
+// ========================================
+const ModelManager = {
+  models: {},
+  loader: null,
+
+  init: function () {
+    if (typeof THREE !== 'undefined' && THREE.GLTFLoader) {
+      this.loader = new THREE.GLTFLoader();
+      console.log('[ModelManager] GLTFLoader initialized');
+    } else {
+      console.warn('[ModelManager] GLTFLoader not available, will use fallback geometry');
+    }
+  },
+
+  load: function (name, url) {
+    return new Promise((resolve, reject) => {
+      if (!this.loader) {
+        const err = new Error(`[ModelManager] Loader not initialized. Cannot load: ${url}`);
+        console.error(err.message);
+        reject(err);
+        return;
+      }
+
+      console.log(`[ModelManager] Loading model: ${name} from ${url}`);
+
+      this.loader.load(
+        url,
+        (gltf) => {
+          this.models[name] = gltf.scene;
+          console.log(`[ModelManager] ✓ Loaded: ${name}`);
+          resolve(gltf.scene);
+        },
+        (progress) => {
+          // Loading progress (optional)
+        },
+        (error) => {
+          console.error(`[ModelManager] ✗ Failed to load ${name} from ${url}:`, error.message || error);
+          reject(error);
+        }
+      );
+    });
+  },
+
+  getClone: function (name) {
+    if (this.models[name]) {
+      return this.models[name].clone();
+    }
+    console.warn(`[ModelManager] Model not found: ${name}, returning null`);
+    return null;
+  }
+};
+
+// ========================================
 // ユーティリティ関数
 // ========================================
 function updateHUD() {
@@ -240,15 +294,42 @@ AFRAME.registerComponent('projectile', {
 });
 
 // ========================================
-// 敵コンポーネント: 移動型（白球体）
+// 敵コンポーネント: 移動型（白ドローン - 射撃型）
 // ========================================
 AFRAME.registerComponent('enemy-mobile', {
   init: function () {
-    // === 敵Mobileビジュアル: トリオン兵風 ===
+    this.health = 1;
+    this.shootCooldown = 2000;
+    this.lastShot = Date.now();
+    this.modelLoaded = false;
+
+    // GLBモデルを試行、失敗時はフォールバック
+    this.loadModel();
+
+    GameState.enemies.push(this);
+  },
+
+  loadModel: function () {
+    const model = ModelManager.getClone('drone_white');
+
+    if (model) {
+      // GLBモデル使用
+      model.scale.set(0.5, 0.5, 0.5); // サイズ調整
+      this.el.setObject3D('mesh', model);
+      this.modelLoaded = true;
+      console.log('[enemy-mobile] Using GLB model');
+    } else {
+      // フォールバック: 既存ジオメトリ
+      console.warn('[enemy-mobile] GLB not available, using fallback geometry');
+      this.createFallbackGeometry();
+    }
+  },
+
+  createFallbackGeometry: function () {
     const container = new THREE.Object3D();
 
-    // 1. ボディ: 元より少し複雑な白球体
-    const bodyGeo = new THREE.IcosahedronGeometry(0.3, 1); // 少しカクカクしている
+    // 1. ボディ: カクカクした白球体
+    const bodyGeo = new THREE.IcosahedronGeometry(0.3, 1);
     const bodyMat = new THREE.MeshStandardMaterial({
       color: 0xffffff,
       roughness: 0.4,
@@ -275,16 +356,10 @@ AFRAME.registerComponent('enemy-mobile', {
     const ringGeo = new THREE.TorusGeometry(0.5, 0.01, 4, 32);
     const ringMat = new THREE.MeshBasicMaterial({ color: 0x888888, transparent: true, opacity: 0.5 });
     const ring = new THREE.Mesh(ringGeo, ringMat);
-    this.ring = ring; // アニメーション用
+    this.ring = ring;
     container.add(ring);
 
     this.el.setObject3D('mesh', container);
-
-    this.health = 1; // 一撃で倒せる
-    this.shootCooldown = 2000; // 2秒ごとに射撃
-    this.lastShot = Date.now();
-
-    GameState.enemies.push(this);
   },
 
   tick: function (time, delta) {
@@ -521,24 +596,188 @@ AFRAME.registerComponent('enemy-turret', {
 });
 
 // ========================================
-// 初期化: 敵配置とHUD更新ループ
+// 初期化: モデルプリロード → 敵配置
 // ========================================
 document.addEventListener('DOMContentLoaded', function () {
   const scene = document.querySelector('a-scene');
 
-  scene.addEventListener('loaded', function () {
+  scene.addEventListener('loaded', async function () {
+    console.log('[Game] Scene loaded, initializing...');
+
+    // ModelManagerの初期化
+    ModelManager.init();
+
+    // GLBモデルをプリロード（失敗してもゲームは続行）
+    try {
+      await Promise.all([
+        ModelManager.load('drone_white', './drone_white.glb'),
+        ModelManager.load('drone_black', './drone_black.glb')
+      ]);
+      console.log('[Game] All models loaded successfully');
+    } catch (error) {
+      console.warn('[Game] Some models failed to load, using fallback geometry:', error.message);
+    }
+
     // 敵を配置
     spawnEnemies();
 
     // HUD更新ループ
     setInterval(updateHUD, 100);
+
+    console.log('[Game] Initialization complete');
   });
+});
+
+// ========================================
+// 敵コンポーネント: 黒ドローン（自爆型）
+// カクカク移動 → タメ → 爆発
+// ========================================
+AFRAME.registerComponent('enemy-drone-black', {
+  init: function () {
+    this.health = 1;
+    this.state = 'approaching'; // 'approaching', 'charging', 'exploding'
+    this.chargeTime = 1500; // タメ時間（ms）
+    this.chargeStarted = 0;
+    this.moveTimer = 0;
+    this.moveInterval = 300; // カクカク移動の間隔（ms）
+    this.modelLoaded = false;
+
+    this.loadModel();
+
+    GameState.enemies.push(this);
+  },
+
+  loadModel: function () {
+    const model = ModelManager.getClone('drone_black');
+
+    if (model) {
+      model.scale.set(0.5, 0.5, 0.5);
+      this.el.setObject3D('mesh', model);
+      this.modelLoaded = true;
+      console.log('[enemy-drone-black] Using GLB model');
+    } else {
+      console.warn('[enemy-drone-black] GLB not available, using fallback geometry');
+      this.createFallbackGeometry();
+    }
+  },
+
+  createFallbackGeometry: function () {
+    // 黒いカクカク球体（フォールバック）
+    const bodyGeo = new THREE.IcosahedronGeometry(0.3, 1);
+    const bodyMat = new THREE.MeshStandardMaterial({
+      color: 0x222222,
+      roughness: 0.3,
+      flatShading: true
+    });
+    const body = new THREE.Mesh(bodyGeo, bodyMat);
+
+    // 赤い目
+    const eyeGeo = new THREE.SphereGeometry(0.1, 16, 16);
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    const eye = new THREE.Mesh(eyeGeo, eyeMat);
+    eye.position.z = 0.25;
+
+    const container = new THREE.Object3D();
+    container.add(body);
+    container.add(eye);
+    this.el.setObject3D('mesh', container);
+  },
+
+  tick: function (time, delta) {
+    const camera = document.querySelector('[camera]');
+    if (!camera) return;
+
+    const myPos = this.el.object3D.position;
+    const targetPos = camera.object3D.position;
+    const distance = myPos.distanceTo(targetPos);
+
+    // プレイヤーの方を向く
+    this.el.object3D.lookAt(targetPos);
+
+    if (this.state === 'approaching') {
+      // カクカク移動（雷のような軌道）
+      this.moveTimer += delta;
+      if (this.moveTimer >= this.moveInterval) {
+        this.moveTimer = 0;
+
+        // プレイヤー方向 + ランダムなブレ
+        const dir = targetPos.clone().sub(myPos).normalize();
+        dir.x += (Math.random() - 0.5) * 0.5;
+        dir.y += (Math.random() - 0.5) * 0.3;
+        dir.z += (Math.random() - 0.5) * 0.5;
+        dir.normalize();
+
+        // 瞬間移動っぽく動く
+        myPos.add(dir.multiplyScalar(0.8));
+      }
+
+      // 近づいたらタメ状態へ
+      if (distance < 2) {
+        this.state = 'charging';
+        this.chargeStarted = time;
+        console.log('[enemy-drone-black] Charging...');
+      }
+    } else if (this.state === 'charging') {
+      // タメ中（点滅など演出可能）
+      const elapsed = time - this.chargeStarted;
+
+      // スケールで膨らむ演出
+      const scale = 1 + Math.sin(elapsed * 0.01) * 0.1;
+      this.el.object3D.scale.set(scale, scale, scale);
+
+      if (elapsed > this.chargeTime) {
+        this.explode();
+      }
+    }
+  },
+
+  explode: function () {
+    this.state = 'exploding';
+    console.log('[enemy-drone-black] Explode!');
+
+    // プレイヤーにダメージ（距離に応じて）
+    const camera = document.querySelector('[camera]');
+    if (camera) {
+      const distance = this.el.object3D.position.distanceTo(camera.object3D.position);
+      if (distance < 3) {
+        GameState.hits++;
+        updateHUD();
+        console.log('[enemy-drone-black] Player hit by explosion!');
+      }
+    }
+
+    this.die();
+  },
+
+  takeDamage: function () {
+    this.health -= 1;
+    if (this.health <= 0) {
+      console.log('[enemy-drone-black] Destroyed before explosion');
+      this.die();
+    }
+  },
+
+  die: function () {
+    GameState.kills++;
+    updateHUD();
+
+    const index = GameState.enemies.indexOf(this);
+    if (index > -1) {
+      GameState.enemies.splice(index, 1);
+    }
+
+    if (this.el.parentNode) {
+      this.el.parentNode.removeChild(this.el);
+    }
+
+    checkGameClear();
+  }
 });
 
 function spawnEnemies() {
   const scene = document.querySelector('a-scene');
 
-  // 移動型敵を3体配置
+  // 白ドローン（射撃型）を3体配置
   for (let i = 0; i < 3; i++) {
     const enemy = document.createElement('a-entity');
     enemy.setAttribute('enemy-mobile', '');
@@ -548,7 +787,17 @@ function spawnEnemies() {
     scene.appendChild(enemy);
   }
 
-  // 固定型敵を2体配置
+  // 黒ドローン（自爆型）を2体配置
+  for (let i = 0; i < 2; i++) {
+    const enemy = document.createElement('a-entity');
+    enemy.setAttribute('enemy-drone-black', '');
+    const angle = ((i + 0.5) / 2) * Math.PI * 2;
+    const radius = 15;
+    enemy.setAttribute('position', `${Math.cos(angle) * radius} 1.5 ${Math.sin(angle) * radius}`);
+    scene.appendChild(enemy);
+  }
+
+  // 固定型敵（タレット）を2体配置
   const turret1 = document.createElement('a-entity');
   turret1.setAttribute('enemy-turret', '');
   turret1.setAttribute('position', '5 2 -15');
