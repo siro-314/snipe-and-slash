@@ -93,6 +93,13 @@ AFRAME.registerComponent('sword', {
   init: function () {
     this.modelLoaded = false;
     this.retryTimer = 0;
+    this.isReady = false; // 当たり判定有効化フラグ
+
+    // 開始直後の誤爆を防ぐため、3秒後に判定を有効化
+    setTimeout(() => {
+      this.isReady = true;
+      console.log('[sword] Ready to slash!');
+    }, 3000);
 
     // まずフォールバックを表示しておく
     this.createFallbackGeometry();
@@ -885,11 +892,23 @@ AFRAME.registerComponent('weapon-controller', {
 
     // swordコンポーネントからblade（当たり判定用メッシュ）を取得
     const swordComp = this.weaponEntity.components.sword;
-    if (!swordComp || !swordComp.blade) return;
+    if (!swordComp || !swordComp.blade || !swordComp.isReady) return; // 準備完了まで判定しない
 
     // 剣の当たり判定ボックスを更新
     const swordMesh = swordComp.blade;
     const swordBox = new THREE.Box3().setFromObject(swordMesh);
+
+    // デバッグ: 判定がデカすぎないかチェック
+    const size = new THREE.Vector3();
+    swordBox.getSize(size);
+    if (size.length() > 5) { // 5m以上の剣は異常として無視
+      // 初回のみ警告
+      if (!this.warnedHugeBox) {
+        console.warn('[checkSwordHit] Sword Box too huge! Ignoring hit.', size);
+        this.warnedHugeBox = true;
+      }
+      return;
+    }
 
     // 全ての敵との接触判定
     GameState.enemies.forEach(enemy => {
