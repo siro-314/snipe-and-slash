@@ -69,10 +69,17 @@ const ModelManager = {
 // ユーティリティ関数
 // ========================================
 function updateHUD() {
-  document.getElementById('kills').textContent = GameState.kills;
-  document.getElementById('hits').textContent = GameState.hits;
+  const killsEl = document.getElementById('kills');
+  const hitsEl = document.getElementById('hits');
+  const timerEl = document.getElementById('timer');
+
+  // 要素が存在しない場合（クリア画面やロード前）は更新しない
+  if (!killsEl || !hitsEl || !timerEl) return;
+
+  killsEl.textContent = GameState.kills;
+  hitsEl.textContent = GameState.hits;
   const elapsed = Math.floor((Date.now() - GameState.startTime) / 1000);
-  document.getElementById('timer').textContent = elapsed;
+  timerEl.textContent = elapsed;
 }
 
 // ========================================
@@ -100,7 +107,8 @@ AFRAME.registerComponent('sword', {
     if (model) {
       // GLBモデル使用（ユーザー作成済みでスケール調整不要）
       model.scale.set(1, 1, 1);
-      model.rotation.x = -Math.PI / 2;
+      // 刃の向きを修正（90度回転させて刃を前に）
+      model.rotation.set(-Math.PI / 2, Math.PI / 2, 0);
 
       // 既存のメッシュ（フォールバック）を削除して差し替え
       if (this.el.getObject3D('mesh')) {
