@@ -93,15 +93,27 @@ AFRAME.registerComponent('sword', {
   init: function () {
     this.modelLoaded = false;
     this.retryTimer = 0;
-    this.isReady = false; // 当たり判定有効化フラグ
+    this.isReady = false;
 
-    // 開始直後の誤爆を防ぐため、3秒後に判定を有効化
+    // 状態管理
+    this.mode = 'sword'; // 'sword' or 'bow'
+    this.isDrawn = false;
+    this.drawStartTime = 0;
+    this.drawProgress = 0;
+
+    // メッシュ参照
+    this.upperBlade = null;
+    this.lowerBlade = null;
+    this.string = null;
+    this.arrow = null;
+
+    // 当たり判定有効化（3秒後）
     setTimeout(() => {
       this.isReady = true;
       console.log('[sword] Ready to slash!');
     }, 3000);
 
-    // まずフォールバックを表示しておく
+    // フォールバック表示
     this.createFallbackGeometry();
 
     // モデルロード試行
@@ -112,120 +124,101 @@ AFRAME.registerComponent('sword', {
     const model = ModelManager.getClone('sword');
 
     if (model) {
-      // GLBモデル使用（ユーザー作成済みでスケール調整不要）
       model.scale.set(1, 1, 1);
-      // 刃の向きを修正（90度回転させて刃を前に）
-      model.rotation.set(-Math.PI / 2, Math.PI / 2, 0);
+      model.rotation.set(0, Math.PI, 0); // 回転リセット（必要に応じて調整）
 
-      // 既存のメッシュ（フォールバック）を削除して差し替え
+      // モデル内のパーツを取得
+      model.traverse(node => {
+        if (node.isMesh) {
+          // コンソールで名前確認可能にする
+          console.log('[sword] Found mesh:', node.name);
+
+          if (node.name.includes('上ブレード')) this.upperBlade = node;
+          if (node.name.includes('下ブレード')) this.lowerBlade = node;
+          if (node.name.includes('弦')) this.string = node;
+          if (node.name.includes('矢')) this.arrow = node;
+        }
+      });
+
+      this.morphIndex = 0; // シェイプキーインデックス仮定
+
+      // メッシュ差し替え
       if (this.el.getObject3D('mesh')) {
         this.el.removeObject3D('mesh');
       }
       this.el.setObject3D('mesh', model);
+      this.blade = model; // 当たり判定用
 
       this.modelLoaded = true;
-      console.log('[sword] Switched to GLB model');
+      console.log('[sword] Switched to GLB model (Morphable)');
 
-      // 当たり判定用に刃の参照を更新（モデル構造に依存するため、適切な子要素を探すか全体を使う）
-      // ここでは全体を当たり判定対象とする
-      this.blade = model;
+      // 初期状態セット
+      this.setMode('sword');
+
+    } else {
+      console.warn('[sword] GLB not available');
     }
   },
 
   createFallbackGeometry: function () {
-    // === フォールバック: 旧来のコード生成剣 ===
-    const container = new THREE.Object3D();
-
-    const gripGeo = new THREE.BoxGeometry(0.025, 0.03, 0.25);
-    const gripMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.7, metalness: 0.3 });
-    const grip = new THREE.Mesh(gripGeo, gripMat);
-    grip.position.z = 0.1;
-    container.add(grip);
-
-    const bladeGeo = new THREE.BoxGeometry(0.06, 0.01, 1.2);
-    const bladeMat = new THREE.MeshPhysicalMaterial({
-      color: 0x00ffcc,
-      emissive: 0x00ffcc,
-      emissiveIntensity: 3,
-      transparent: true,
-      opacity: 0.7,
-      side: THREE.DoubleSide
-    });
-    const blade = new THREE.Mesh(bladeGeo, bladeMat);
-    blade.position.z = -0.55;
-    container.add(blade);
-
-    this.el.setObject3D('mesh', container);
-    this.blade = blade;
+    // 読み込み待ち用
+    const geo = new THREE.BoxGeometry(0.1, 0.1, 1);
+    const mat = new THREE.MeshBasicMaterial({ color: 'red', wireframe: true });
+    this.el.setObject3D('mesh', new THREE.Mesh(geo, mat));
   },
 
-  tick: function (time, delta) {
-    // モデル未ロードなら定期的にチェックして差し替え
-    if (!this.modelLoaded) {
-      this.retryTimer += delta;
-      if (this.retryTimer > 500) { // 0.5秒ごとにチェック
-        this.retryTimer = 0;
-        this.tryLoadModel();
+  // モード切替
+  setMode: function (mode) {
+    this.mode = mode;
+    if (!this.modelLoaded) return;
+
+    if (mode === 'bow') {
+      // 弓モード
+      if (this.upperBlade && this.upperBlade.morphTargetInfluences) {
+        this.upperBlade.morphTargetInfluences[this.morphIndex] = 1;
       }
+      if (this.lowerBlade) this.lowerBlade.visible = true;
+      if (this.string) this.string.visible = true;
+
+      // 矢は隠す（引くと出る）
+      if (this.arrow) {
+        this.arrow.visible = false;
+        if (this.arrow.material) {
+          this.arrow.material.transparent = true;
+          this.arrow.material.opacity = 0;
+        }
+      }
+
+    } else {
+      // 剣モード
+      if (this.upperBlade && this.upperBlade.morphTargetInfluences) {
+        this.upperBlade.morphTargetInfluences[this.morphIndex] = 0;
+      }
+      if (this.lowerBlade) this.lowerBlade.visible = false;
+      if (this.string) this.string.visible = false;
+      if (this.arrow) this.arrow.visible = false;
+
+      this.isDrawn = false;
     }
-  }
-});
-
-// ========================================
-// 武器コンポーネント: 弓
-// ========================================
-AFRAME.registerComponent('bow', {
-  schema: {
-    hand: { type: 'string', default: 'right' }
   },
 
-  init: function () {
-    // === 弓ビジュアル改修: テクノアーク ===
-    const container = new THREE.Object3D();
+  // 弦を引くアクション
+  startDraw: function () {
+    if (this.mode !== 'bow') return;
+    this.isDrawn = true;
+    this.drawStartTime = Date.now();
 
-    // 1. 弓の本体（上下のリブ）: 流線型の黒パーツ
-    const limbGeo = new THREE.TorusGeometry(0.3, 0.02, 8, 30, Math.PI / 1.5); // 円弧の一部
-    const limbMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.5 });
-
-    const upperLimb = new THREE.Mesh(limbGeo, limbMat);
-    upperLimb.rotation.z = Math.PI / 2 + 0.5;
-    upperLimb.position.y = 0;
-    container.add(upperLimb);
-
-    // 2. エネルギーライン（発光脈）
-    const veinGeo = new THREE.TorusGeometry(0.305, 0.005, 4, 30, Math.PI / 1.5);
-    const veinMat = new THREE.MeshBasicMaterial({ color: 0x00d4ff });
-    const vein = new THREE.Mesh(veinGeo, veinMat);
-    vein.rotation.z = Math.PI / 2 + 0.5;
-    container.add(vein);
-
-    // 3. ハンドル部分
-    const handleGeo = new THREE.BoxGeometry(0.05, 0.1, 0.05);
-    const handleMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
-    const handle = new THREE.Mesh(handleGeo, handleMat);
-    container.add(handle);
-
-    // 4. 弦（エネルギー）
-    // 引いてない状態の直線
-    const stringGeo = new THREE.CylinderGeometry(0.002, 0.002, 0.55);
-    const stringMat = new THREE.MeshBasicMaterial({ color: 0x00d4ff, transparent: true, opacity: 0.5 });
-    const bowString = new THREE.Mesh(stringGeo, stringMat);
-    bowString.position.x = -0.08; // 弓の内側
-    container.add(bowString);
-
-    this.el.setObject3D('mesh', container);
-    this.bowString = bowString; // アニメーション用参照
-
-    this.isDrawn = false;
-    // this.drawStartPos = null; // Removed as it was unused or will be handled differently
+    if (this.arrow) {
+      this.arrow.visible = true;
+      if (this.arrow.material) this.arrow.material.opacity = 0;
+    }
   },
 
-  tick: function () {
-    // 弓を引く処理は後で実装
-  },
-
+  // 矢を放つ
   shoot: function () {
-    // 矢（エネルギー弾）を発射
+    if (this.mode !== 'bow' || !this.isDrawn) return;
+
+    // 発射ロジック
     const arrow = document.createElement('a-sphere');
     arrow.setAttribute('radius', '0.05');
     arrow.setAttribute('color', '#00d4ff');
@@ -236,12 +229,69 @@ AFRAME.registerComponent('bow', {
     dir.applyQuaternion(this.el.object3D.getWorldQuaternion(new THREE.Quaternion()));
 
     arrow.setAttribute('position', pos);
-    arrow.setAttribute('projectile', `direction: ${dir.x} ${dir.y} ${dir.z}; speed: 10`);
+    arrow.setAttribute('projectile', `direction: ${dir.x} ${dir.y} ${dir.z}; speed: 20`);
     arrow.setAttribute('player-arrow', '');
 
     document.querySelector('a-scene').appendChild(arrow);
+
+    // リセット
+    this.isDrawn = false;
+    this.updateMorphs(0);
+    if (this.arrow) this.arrow.visible = false;
+
+    if (this.el.components.haptics) {
+      this.el.components.haptics.pulse(1.0, 50);
+    }
+  },
+
+  updateMorphs: function (value) {
+    if (this.string && this.string.morphTargetInfluences) {
+      this.string.morphTargetInfluences[this.morphIndex] = value;
+    }
+    if (this.arrow && this.arrow.morphTargetInfluences) {
+      this.arrow.morphTargetInfluences[this.morphIndex] = value;
+    }
+  },
+
+  tick: function (time, delta) {
+    if (!this.modelLoaded) {
+      this.retryTimer += delta;
+      if (this.retryTimer > 500) {
+        this.retryTimer = 0;
+        this.tryLoadModel();
+      }
+      return;
+    }
+
+    // アニメーション
+    if (this.mode === 'bow' && this.isDrawn) {
+      const elapsed = Date.now() - this.drawStartTime;
+      this.drawProgress = Math.min(elapsed / 500, 1);
+
+      this.updateMorphs(this.drawProgress);
+
+      if (this.arrow && this.arrow.material) {
+        this.arrow.material.opacity = this.drawProgress;
+      }
+
+      if (this.drawProgress < 1 && Math.random() < 0.1) {
+        if (this.el.components.haptics) this.el.components.haptics.pulse(0.1, 10);
+      }
+    }
   }
 });
+
+// ========================================
+// 武器コンポーネント: 弓
+// ========================================
+// ========================================
+// 武器コンポーネント: 弓 (廃止 - swordコンポーネントに統合)
+// ========================================
+/*
+AFRAME.registerComponent('bow', {
+  // ... (旧実装はswordに統合済み) ...
+});
+*/
 
 // ========================================
 // 弾丸コンポーネント
@@ -809,8 +859,14 @@ AFRAME.registerComponent('weapon-controller', {
     this.triggerPressed = false;
     this.gripPressed = false;
 
-    // 初期武器（剣）を装備
-    this.equipWeapon('sword');
+    // 武器エンティティを作成（swordコンポーネント付き）
+    this.weaponEntity = document.createElement('a-entity');
+    this.weaponEntity.setAttribute('sword', `hand: ${this.data.hand}`);
+    this.weaponEntity.setAttribute('position', '0 0 -0.1');
+    this.el.appendChild(this.weaponEntity);
+
+    // 初期状態は剣
+    GameState.currentWeapon = 'sword';
 
     // イベントリスナー
     this.el.addEventListener('triggerdown', this.onTriggerDown.bind(this));
@@ -820,41 +876,45 @@ AFRAME.registerComponent('weapon-controller', {
   },
 
   equipWeapon: function (weaponType) {
-    // 既存の武器を削除
-    if (this.weaponEntity) {
-      this.el.removeChild(this.weaponEntity);
+    // モード切替のみ行う
+    if (this.weaponEntity && this.weaponEntity.components.sword) {
+      this.weaponEntity.components.sword.setMode(weaponType);
     }
-
-    // 新しい武器を作成
-    this.weaponEntity = document.createElement('a-entity');
-    this.weaponEntity.setAttribute(weaponType, `hand: ${this.data.hand}`);
-    this.weaponEntity.setAttribute('position', '0 0 -0.1');
-    this.el.appendChild(this.weaponEntity);
-
     GameState.currentWeapon = weaponType;
+
+    // 振動フィードバック
+    if (this.el.components.haptics) {
+      this.el.components.haptics.pulse(0.5, 100);
+    }
   },
 
   onTriggerDown: function (evt) {
     this.triggerPressed = true;
 
-    // 弓の場合: トリガーで弓に切り替え
+    // 剣モードなら弓モードへ切り替え
     if (GameState.currentWeapon === 'sword') {
       this.equipWeapon('bow');
+
+      // 切り替えと同時に弦を引き始める（シンプル操作）
+      if (this.weaponEntity && this.weaponEntity.components.sword) {
+        this.weaponEntity.components.sword.startDraw();
+      }
     }
   },
 
   onTriggerUp: function (evt) {
     this.triggerPressed = false;
 
-    // 弓の場合: トリガーを離したら剣に戻る
+    // 弓モードなら矢を放って剣に戻る
     if (GameState.currentWeapon === 'bow') {
-      // 矢を射る
-      if (this.weaponEntity && this.weaponEntity.components.bow) {
-        this.weaponEntity.components.bow.shoot();
+      if (this.weaponEntity && this.weaponEntity.components.sword) {
+        this.weaponEntity.components.sword.shoot();
       }
 
-      // 剣に切り替え
-      this.equipWeapon('sword');
+      // 少し遅れて剣に戻す（余韻）
+      setTimeout(() => {
+        this.equipWeapon('sword');
+      }, 200);
     }
   },
 
@@ -949,6 +1009,7 @@ AFRAME.registerComponent('weapon-controller', {
 // ========================================
 // 弓コンポーネントに弦引きメソッド追加
 // ========================================
+/*
 // 既存のbowコンポーネントを拡張
 const bowProto = AFRAME.components.bow.Component.prototype;
 const originalBowInit = bowProto.init;
@@ -972,6 +1033,7 @@ bowProto.tick = function (time, delta) {
     this.el.object3D.rotation.x = -this.drawProgress * 0.3;
   }
 };
+*/
 
 // ========================================
 // プレイヤーの矢が敵に当たる判定
