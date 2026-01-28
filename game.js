@@ -108,9 +108,15 @@ AFRAME.registerComponent('sword', {
     // メッシュ参照
     this.upperBlade = null;
     this.lowerBlade = null;
-    this.string = null;
     this.arrow = null;
     this.arrowPrefab = null; // 矢の原本（クローン用）
+
+    // デバッグ用マーカー（弦の掴み位置）
+    const markerGeo = new THREE.SphereGeometry(0.05, 16, 16);
+    const markerMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.5, wireframe: true });
+    this.nockMarker = new THREE.Mesh(markerGeo, markerMat);
+    this.nockMarker.visible = false;
+    this.el.sceneEl.object3D.add(this.nockMarker);
 
     // 当たり判定有効化（3秒後）
     setTimeout(() => {
@@ -130,8 +136,8 @@ AFRAME.registerComponent('sword', {
 
     if (model) {
       model.scale.set(1, 1, 1);
-      // 回転修正（Blender座標系 X90, Y90 に対応 -> Three.jsでは順序に注意しつつ適用）
-      model.rotation.set(Math.PI / 2, Math.PI / 2, 0);
+      // 回転再修正（-90, -90, 0）
+      model.rotation.set(-Math.PI / 2, -Math.PI / 2, 0);
 
       // モデル内のパーツを取得
       model.traverse(node => {
@@ -211,11 +217,11 @@ AFRAME.registerComponent('sword', {
 
   // 弦に近いか判定
   isNearString: function () {
-    if (!this.otherHand) return false;
+    if (!this.otherHand || !this.nockMarker) return false;
     const handPos = this.otherHand.object3D.getWorldPosition(new THREE.Vector3());
-    const bowPos = this.el.object3D.getWorldPosition(new THREE.Vector3());
-    // 簡易判定：0.3m以内
-    return handPos.distanceTo(bowPos) < 0.3;
+    const markerPos = this.nockMarker.position;
+    const dist = handPos.distanceTo(markerPos);
+    return dist < 0.4; // 判定緩和
   },
 
   setMode: function (mode) {
@@ -234,6 +240,8 @@ AFRAME.registerComponent('sword', {
         if (this.arrow.material) this.arrow.material.opacity = 0;
       }
 
+      if (this.nockMarker) this.nockMarker.visible = true;
+
     } else {
       if (this.upperBlade && this.upperBlade.morphTargetInfluences) {
         this.upperBlade.morphTargetInfluences[this.morphIndex] = 0;
@@ -244,6 +252,8 @@ AFRAME.registerComponent('sword', {
 
       this.isGrabbingString = false;
       this.isDrawn = false;
+
+      if (this.nockMarker) this.nockMarker.visible = false;
     }
   },
 
@@ -307,6 +317,9 @@ AFRAME.registerComponent('sword', {
     this.updateMorphs(0);
     if (this.arrow) this.arrow.visible = false;
 
+    // マーカー色リセット
+    if (this.nockMarker) this.nockMarker.material.color.setHex(0x00ff00);
+
     if (this.el.components.haptics) {
       this.el.components.haptics.pulse(1.0, 50);
     }
@@ -329,6 +342,15 @@ AFRAME.registerComponent('sword', {
         this.tryLoadModel();
       }
       return;
+    }
+
+    // マーカー位置更新
+    if (this.mode === 'bow' && this.nockMarker) {
+      // グリップから少しずらした位置を判定基準にする
+      const offset = new THREE.Vector3(0, 0, 0.2);
+      offset.applyQuaternion(this.el.object3D.getWorldQuaternion(new THREE.Quaternion()));
+      const worldPos = this.el.object3D.getWorldPosition(new THREE.Vector3()).add(offset);
+      this.nockMarker.position.copy(worldPos);
     }
 
     // 両手操作ロジック
