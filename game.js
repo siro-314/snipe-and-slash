@@ -136,8 +136,8 @@ AFRAME.registerComponent('sword', {
 
     if (model) {
       model.scale.set(1, 1, 1);
-      // 回転再修正（-90, -90, 0）
-      model.rotation.set(-Math.PI / 2, -Math.PI / 2, 0);
+      // 回転再修正（-90, -90, 180）
+      model.rotation.set(-Math.PI / 2, -Math.PI / 2, Math.PI);
 
       // モデル内のパーツを取得
       model.traverse(node => {
@@ -285,7 +285,15 @@ AFRAME.registerComponent('sword', {
     let arrowMesh;
     if (this.arrowPrefab) {
       arrowMesh = this.arrowPrefab.clone();
-      if (arrowMesh.material) arrowMesh.material = this.arrowPrefab.material.clone(); // マテリアルも複製
+      if (arrowMesh.material) {
+        arrowMesh.material = this.arrowPrefab.material.clone();
+        arrowMesh.material.transparent = false; // 確実に表示
+        arrowMesh.material.opacity = 1.0;
+      }
+      // モーフィングリセット
+      if (arrowMesh.morphTargetInfluences) {
+        arrowMesh.morphTargetInfluences[0] = 0;
+      }
     } else {
       // フォールバック
       arrowMesh = new THREE.Mesh(
@@ -303,8 +311,8 @@ AFRAME.registerComponent('sword', {
 
     arrowEntity.setAttribute('position', pos);
 
-    // 威力や速度を引き具合で変える？ 今回は固定かつ高速に
-    const speed = 20 + (this.drawProgress * 10); // 20~30
+    // 威力や速度を引き具合で変える？ 今回は固定かつ高速に（少し遅くして視認性確保）
+    const speed = 10 + (this.drawProgress * 15); // 10~25
     arrowEntity.setAttribute('projectile', `direction: ${dir.x} ${dir.y} ${dir.z}; speed: ${speed}`);
     arrowEntity.setAttribute('player-arrow', '');
 
@@ -317,8 +325,7 @@ AFRAME.registerComponent('sword', {
     this.updateMorphs(0);
     if (this.arrow) this.arrow.visible = false;
 
-    // マーカー色リセット
-    if (this.nockMarker) this.nockMarker.material.color.setHex(0x00ff00);
+    // 他で色制御するのでここではリセット不要（tickで更新）
 
     if (this.el.components.haptics) {
       this.el.components.haptics.pulse(1.0, 50);
@@ -351,6 +358,15 @@ AFRAME.registerComponent('sword', {
       offset.applyQuaternion(this.el.object3D.getWorldQuaternion(new THREE.Quaternion()));
       const worldPos = this.el.object3D.getWorldPosition(new THREE.Vector3()).add(offset);
       this.nockMarker.position.copy(worldPos);
+
+      // 色制御: 掴んでいれば赤、近ければ黄色、それ以外は緑
+      if (this.isGrabbingString) {
+        this.nockMarker.material.color.setHex(0xff0000);
+      } else if (this.isNearString()) {
+        this.nockMarker.material.color.setHex(0xffff00);
+      } else {
+        this.nockMarker.material.color.setHex(0x00ff00);
+      }
     }
 
     // 両手操作ロジック
