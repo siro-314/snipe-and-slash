@@ -309,6 +309,13 @@ AFRAME.registerComponent('sword', {
     const dir = new THREE.Vector3(0, 0, -1);
     dir.applyQuaternion(this.el.object3D.getWorldQuaternion(new THREE.Quaternion()));
 
+    // スケール補正: 元の矢のワールドスケールを適用
+    if (this.arrow) {
+      const worldScale = new THREE.Vector3();
+      this.arrow.getWorldScale(worldScale);
+      arrowEntity.object3D.scale.copy(worldScale);
+    }
+
     arrowEntity.setAttribute('position', pos);
 
     // 威力や速度を引き具合で変える？ 今回は固定かつ高速に（少し遅くして視認性確保）
@@ -1027,11 +1034,7 @@ AFRAME.registerComponent('weapon-controller', {
     // 剣モードなら弓モードへ切り替え
     if (GameState.currentWeapon === 'sword') {
       this.equipWeapon('bow');
-
-      // 切り替えと同時に弦を引き始める（シンプル操作）
-      if (this.weaponEntity && this.weaponEntity.components.sword) {
-        this.weaponEntity.components.sword.startDraw();
-      }
+      // 自動掴みは廃止（両手操作へ移行）
     }
   },
 
