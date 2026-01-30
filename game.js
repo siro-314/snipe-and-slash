@@ -138,6 +138,7 @@ AFRAME.registerComponent('sword', {
       model.scale.set(1, 1, 1);
       // 回転修正: Blender(X90, Y90) -> (Math.PI/2, Math.PI/2, 0) を試行
       model.rotation.set(Math.PI / 2, Math.PI / 2, 0);
+      console.log(`[sword] Applied rotation: ${model.rotation.x}, ${model.rotation.y}, ${model.rotation.z}`);
 
       // モデル内のパーツを取得
       model.traverse(node => {
@@ -760,10 +761,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // GLBモデルをプリロード（失敗してもゲームは続行）
     try {
+      const v = Date.now();
       await Promise.all([
-        ModelManager.load('drone_white', './drone_white.glb'),
-        ModelManager.load('drone_black', './drone_black.glb'),
-        ModelManager.load('sword', './sword.glb')
+        ModelManager.load('drone_white', `./drone_white.glb?v=${v}`),
+        ModelManager.load('drone_black', `./drone_black.glb?v=${v}`),
+        ModelManager.load('sword', `./sword.glb?v=${v}`)
       ]);
       console.log('[Game] All models loaded successfully');
     } catch (error) {
