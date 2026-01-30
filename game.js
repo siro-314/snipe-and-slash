@@ -136,31 +136,25 @@ AFRAME.registerComponent('sword', {
 
     if (model) {
       model.scale.set(1, 1, 1);
-      // 回転再修正（-90, -90, 180）
-      model.rotation.set(-Math.PI / 2, -Math.PI / 2, Math.PI);
+      // 回転修正: Blender(X90, Y90) -> (Math.PI/2, Math.PI/2, 0) を試行
+      model.rotation.set(Math.PI / 2, Math.PI / 2, 0);
 
       // モデル内のパーツを取得
       model.traverse(node => {
         if (node.isMesh) {
-          // console.log('[sword] Found mesh:', node.name); // デバッグ用
-
           if (node.name.includes('上ブレード')) this.upperBlade = node;
           if (node.name.includes('下ブレード')) this.lowerBlade = node;
           if (node.name.includes('弦')) this.string = node;
           if (node.name.includes('矢')) {
             this.arrow = node;
-            // 矢のプレハブを作成（変形前の状態で保持したいのでクローンして保存）
-            // ただしシェイプキーの影響を受けないように注意が必要だが、
-            // 単純にクローンしてシェイプキーを0にすればOK
             this.arrowPrefab = node.clone();
             this.arrowPrefab.visible = true;
             if (this.arrowPrefab.morphTargetInfluences) {
               this.arrowPrefab.morphTargetInfluences[0] = 0;
             }
-            // マテリアルもクローンして透明度を独立させる
             if (this.arrowPrefab.material) {
               this.arrowPrefab.material = this.arrowPrefab.material.clone();
-              this.arrowPrefab.material.transparent = true;
+              this.arrowPrefab.material.transparent = false;
               this.arrowPrefab.material.opacity = 1;
             }
           }
@@ -177,7 +171,7 @@ AFRAME.registerComponent('sword', {
       this.blade = model;
 
       this.modelLoaded = true;
-      console.log('[sword] Switched to GLB model (Morphable, Rotation Fixed)');
+      console.log('[sword] Switched to new GLB model');
 
       // 初期状態セット
       this.setMode('sword');
