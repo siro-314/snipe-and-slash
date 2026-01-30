@@ -136,8 +136,8 @@ AFRAME.registerComponent('sword', {
 
     if (model) {
       model.scale.set(1, 1, 1);
-      // 回転修正: Blender(X90, Y90) -> (Math.PI/2, Math.PI/2, 0) を試行
-      model.rotation.set(Math.PI / 2, Math.PI / 2, 0);
+      // 回転修正: Blender(X90, Y90) -> (Math.PI/2, Math.PI/2, Math.PI) Z軸180度追加
+      model.rotation.set(Math.PI / 2, Math.PI / 2, Math.PI);
       console.log(`[sword] Applied rotation: ${model.rotation.x}, ${model.rotation.y}, ${model.rotation.z}`);
 
       // モデル内のパーツを取得
