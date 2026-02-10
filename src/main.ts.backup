@@ -3,12 +3,11 @@
  * 
  * WebXR VRゲーム - ブラウザで遊べる剣と弓のアクションゲーム
  * 
- * Phase 2完了: ファイル分割
- * - 新しいモジュールを作成したが、main.tsでは既存コードを維持
- * - Phase 3でクラスベースに移行予定
+ * Note: A-Frameコンポーネントの型定義は複雑なため、
+ * 一部で型チェックを緩和しています（Phase 3以降で改善予定）
  */
 
-// @ts-nocheck - A-Frameコンポーネント対応のため型チェック緩和
+// @ts-nocheck - Phase 1では型チェックを緩和（Phase 3で厳格化）
 
 import type {
   GameStateType,
@@ -17,11 +16,6 @@ import type {
   ModelName,
   ModelManagerType
 } from './domain/types';
-
-// Phase 3で使用予定のモジュール（現在は未使用）
-// import { gameState } from './domain/gameState';
-// import { modelManager } from './managers/modelManager';
-// import { hudManager } from './managers/hudManager';
 
 // ========================================
 // グローバル状態管理
