@@ -8,98 +8,97 @@ WebXRベースのブラウザVRゲーム「SNIPE & SLASH」を開発。
 
 ## 2. ディレクトリマップと役割
 
-### 現在（Phase 0: リファクタリング準備中）
-```
-~/Desktop/snipe-and-slash/
-├── index.html              # メインHTML（A-Frameシーン）
-├── game.js                 # ゲームロジック（1249行）← リファクタリング対象
-├── drone_white.glb         # 白ドローン
-├── drone_black.glb         # 黒ドローン
-├── sword.glb               # 剣GLBモデル
-├── README.md
-├── netlify.toml
-├── REFACTORING_PLAN.md     # リファクタリング計画書
-├── snipe-slash-progress.md # この引き継ぎファイル
-└── 開発日記.md             # プロジェクト年表
-```
-
-### 最終目標（Phase 5完了後）
+### 現在（Phase 2完了）
 ```
 ~/Desktop/snipe-and-slash/
 ├── public/
-│   ├── models/             # GLBモデル移動
-│   └── index.html
+│   ├── drone_white.glb
+│   ├── drone_black.glb
+│   └── sword.glb
 ├── src/
-│   ├── domain/             # ビジネスロジック（Pure関数）
-│   ├── managers/           # 状態管理
-│   ├── components/         # A-Frameコンポーネント
-│   │   ├── weapons/
-│   │   └── enemies/
+│   ├── domain/
+│   │   ├── types.ts           # 型定義（179行）
+│   │   └── gameState.ts       # ゲーム状態管理（136行）
+│   ├── managers/
+│   │   ├── modelManager.ts    # GLBモデル管理（138行）
+│   │   └── hudManager.ts      # HUD管理（96行）
 │   ├── utils/
-│   └── main.ts             # エントリーポイント
-├── tsconfig.json
+│   │   └── helpers.ts         # ユーティリティ（98行）
+│   └── main.ts                # メインロジック（1268行）← Phase 3で削減予定
+├── index.html
 ├── package.json
+├── tsconfig.json
 ├── vite.config.ts
 └── netlify.toml
+```
+
+### Phase 3以降の目標
+```
+src/
+├── domain/             # ビジネスロジック
+├── managers/           # 状態管理
+├── components/         # A-Frameコンポーネント
+│   ├── weapons/
+│   └── enemies/
+├── utils/
+└── main.ts (300行以下)
 ```
 
 ## 3. 技術選定と制約
 
 ### 現在の技術スタック
-- **WebXR**: A-Frame 1.4.2 + aframe-extras
-- **言語**: Pure JavaScript（1249行）
-- **ビルドツール**: なし（HTMLで直接読み込み）
-- **デプロイ**: Netlify（静的ホスティング）
+- **WebXR**: A-Frame 1.4.2
+- **言語**: TypeScript（型チェック一部緩和）
+- **ビルドツール**: Vite 5.4.21
+- **アーキテクチャ**: Phase 2完了（ファイル分割）
+- **デプロイ**: Netlify
 
-### リファクタリング後の技術スタック
-- **WebXR**: A-Frame 1.4.2（維持）
-- **言語**: TypeScript（型安全性）
-- **ビルドツール**: Vite（高速ホットリロード）
-- **アーキテクチャ**: DDD + 依存性注入
-- **デプロイ**: Netlify（Viteビルド出力）
+### 完成機能リスト
+✅ VR操作システム
+✅ 敵2種（白・黒ドローン）+ AI
+✅ GLBモデル対応 + フォールバック
+✅ 剣の物理判定（Box3）
+✅ 弾丸システム
+✅ HUD表示
+✅ スコア計算＆クリア画面
 
-### リファクタリングの理由
-- **現状のコード評価**: 66点（個人開発なら合格、チーム開発なら要改善）
-  - ✅ ModelManager分離（良い）
-  - ✅ エラーハンドリング（良い）
-  - ⚠️ グローバル変数依存（改善必要）
-  - ⚠️ if-else連鎖（拡張性低い）
-  - ⚠️ 1ファイル1249行（保守性低い）
-
-- **目標品質**: 85点以上（プロダクションレベル）
-  - ✅ TypeScript化（型安全性）
-  - ✅ ファイル分割（1ファイル300行以内）
-  - ✅ クラス設計（疎結合・依存性注入）
-  - ✅ 抽象化（武器・敵の追加が容易）
-
-### 守るべき既存資産
-- ✅ GLBロード機構（ModelManager）
-- ✅ Blender座標系変換ロジック
-- ✅ 3秒ディレイによる即死バグ対策
-- ✅ Box3による高精度当たり判定
-- ✅ 敵AIの挙動（速度・攻撃タイミング等）
-- ✅ ゲームバランス調整値
+### リファクタリング進捗
+- ✅ Phase 0: 計画書作成
+- ✅ Phase 1: TypeScript環境構築
+- ✅ Phase 2: ファイル分割（468行の新規コード）
+- ⏳ Phase 3: クラス化・依存性注入（次のステップ）
+- ⏳ Phase 4: コンポーネント設計改善
+- ⏳ Phase 5: 最適化・ドキュメント・実機テスト
 
 ## 4. 現状と次の一手
 
-**現在地**: ✅ **Phase 1完了: TypeScript環境構築完了**
+**現在地**: ✅ **Phase 2完了: ファイル分割完了**
 
-**Phase 1で完了したこと**:
-- ✅ package.json, tsconfig.json, vite.config.ts 作成
-- ✅ Vite + TypeScript開発環境セットアップ
-- ✅ game.js → src/main.ts に移行
-- ✅ GLBモデルをpublicディレクトリに移動
-- ✅ 型定義ファイル (src/domain/types.ts) 作成
-- ✅ GameState, ModelManager に型注釈追加
-- ✅ 開発サーバー動作確認 (http://localhost:8081)
+**Phase 2で完成したモジュール**:
+1. `src/domain/gameState.ts` (136行)
+   - GameStateManagerクラス
+   - イベント駆動設計の準備完了
+   
+2. `src/managers/modelManager.ts` (138行)
+   - ModelManagerクラス
+   - GLTFLoader統合、Promise-based非同期
+   
+3. `src/managers/hudManager.ts` (96行)
+   - HUDManagerクラス
+   - 安全なDOM操作、nullチェック完備
+   
+4. `src/utils/helpers.ts` (98行)
+   - Pure関数コレクション
+   - Blender座標補正、距離計算等
 
-**次のPhase**: Phase 2 - ファイル分割（4-5時間予定）
+**次のPhase**: Phase 3 - クラス化・依存性注入（5-6時間予定）
 
-**次にやること**:
-1. src/domain/gameState.ts を抽出
-2. src/managers/ModelManager.ts を抽出
-3. src/components/ に A-Frameコンポーネント分割
-4. 各ファイルで動作確認
+**Phase 3でやること**:
+1. main.tsの既存GameStateを新GameStateManagerに置き換え
+2. main.tsの既存ModelManagerを新モジュールに置き換え
+3. A-Frameコンポーネントに依存性注入
+4. グローバル変数削除
+5. イベント駆動設計導入
 
 **アカウント切り替え後に打つべきコマンド**:
 ```bash
@@ -113,30 +112,15 @@ npm run dev
 
 # ビルド確認
 npm run build
-
-# 型チェック
-npm run type-check
 ```
-
-**動作確認手順**:
-1. ローカルサーバー起動: `npm run dev` または `python3 -m http.server 8080`
-2. ブラウザで http://localhost:8080 を開く
-3. VRモードで動作確認（Quest推奨）
-4. 全機能チェック:
-   - ✅ 剣攻撃
-   - ✅ 弓切替・射撃
-   - ✅ 敵AI（白・黒ドローン）
-   - ✅ HUD表示
-   - ✅ クリア画面
 
 **緊急ロールバック**:
 ```bash
-# リファクタリングを中断して元に戻す
-git checkout main
-git branch -D refactor/typescript-migration
+# Phase 2に戻す
+git reset --hard phase-2-complete
 
-# または特定Phaseに戻す
-git reset --hard phase-N-complete
+# Phase 1に戻す
+git reset --hard phase-1-complete
 ```
 
 ---
@@ -145,4 +129,4 @@ git reset --hard phase-N-complete
 **GitHubリポジトリ**: https://github.com/siro-314/snipe-and-slash
 
 ---
-最終更新: 2026-02-10 Phase 0: リファクタリング計画完了
+最終更新: 2026-02-10 Phase 2完了（ファイル分割: 468行の新規コード作成）
