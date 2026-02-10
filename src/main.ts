@@ -3,108 +3,36 @@
  * 
  * WebXR VRゲーム - ブラウザで遊べる剣と弓のアクションゲーム
  * 
- * Phase 2完了: ファイル分割
- * - 新しいモジュールを作成したが、main.tsでは既存コードを維持
- * - Phase 3でクラスベースに移行予定
+ * Phase 3開始: クラス化・依存性注入
+ * - GameStateManager統合（Step 3.1）
+ * - ModelManager統合予定（Step 3.2）
+ * - HUDManager統合予定（Step 3.3）
  */
 
 // @ts-nocheck - A-Frameコンポーネント対応のため型チェック緩和
 
 import type {
-  GameStateType,
   WeaponType,
   HandType,
   ModelName,
   ModelManagerType
 } from './domain/types';
 
-// Phase 3で使用予定のモジュール（現在は未使用）
-// import { gameState } from './domain/gameState';
-// import { modelManager } from './managers/modelManager';
-// import { hudManager } from './managers/hudManager';
+// Domain層
+import { gameState } from './domain/gameState';
 
-// ========================================
-// グローバル状態管理
-// ========================================
-const GameState: GameStateType = {
-  kills: 0,
-  hits: 0,
-  startTime: Date.now(),
-  enemies: [],
-  projectiles: [],
-  currentWeapon: 'sword' as WeaponType,
-  activeHand: 'right' as HandType
-};
+// Managers層（段階的に統合）
+import { modelManager } from './managers/modelManager';
+import { hudManager } from './managers/hudManager';
 
-// ========================================
-// GLBモデル管理（疎結合・エラーログ付き）
-// ========================================
-const ModelManager: ModelManagerType = {
-  models: {} as Record<string, THREE.Object3D>,
-  loader: null as THREE.GLTFLoader | null,
-
-  init: function () {
-    if (typeof THREE !== 'undefined' && (THREE as any).GLTFLoader) {
-      this.loader = new (THREE as any).GLTFLoader();
-      console.log('[ModelManager] GLTFLoader initialized');
-    } else {
-      console.warn('[ModelManager] GLTFLoader not available, will use fallback geometry');
-    }
-  },
-
-  load: function (name: ModelName, url: string): Promise<THREE.Object3D> {
-    return new Promise((resolve, reject) => {
-      if (!this.loader) {
-        const err = new Error(`[ModelManager] Loader not initialized. Cannot load: ${url}`);
-        console.error(err.message);
-        reject(err);
-        return;
-      }
-
-      console.log(`[ModelManager] Loading model: ${name} from ${url}`);
-
-      this.loader.load(
-        url,
-        (gltf: any) => {
-          this.models[name] = gltf.scene;
-          console.log(`[ModelManager] ✓ Loaded: ${name}`);
-          resolve(gltf.scene);
-        },
-        (progress: any) => {
-          // Loading progress (optional)
-        },
-        (error: any) => {
-          console.error(`[ModelManager] ✗ Failed to load ${name} from ${url}:`, error.message || error);
-          reject(error);
-        }
-      );
-    });
-  },
-
-  getClone: function (name: ModelName): THREE.Object3D | null {
-    if (this.models[name]) {
-      return this.models[name].clone();
-    }
-    console.warn(`[ModelManager] Model not found: ${name}, returning null`);
-    return null;
-  }
-};
+// Utils層
+import { getDistance, getRandomSpawnPosition } from './utils/helpers';
 
 // ========================================
 // ユーティリティ関数
 // ========================================
 function updateHUD(): void {
-  const killsEl = document.getElementById('kills');
-  const hitsEl = document.getElementById('hits');
-  const timerEl = document.getElementById('timer');
-
-  // 要素が存在しない場合（クリア画面やロード前）は更新しない
-  if (!killsEl || !hitsEl || !timerEl) return;
-
-  killsEl.textContent = String(GameState.kills);
-  hitsEl.textContent = String(GameState.hits);
-  const elapsed = Math.floor((Date.now() - GameState.startTime) / 1000);
-  timerEl.textContent = String(elapsed);
+  hudManager.update(gameState);
 }
 
 // ========================================
@@ -157,7 +85,7 @@ AFRAME.registerComponent('sword', {
   },
 
   tryLoadModel: function () {
-    const model = ModelManager.getClone('sword');
+    const model = modelManager.getClone('sword');
 
     if (model) {
       model.scale.set(1, 1, 1);
@@ -483,11 +411,11 @@ AFRAME.registerComponent('enemy-mobile', {
     // GLBモデルを試行、失敗時はフォールバック
     this.loadModel();
 
-    GameState.enemies.push(this);
+    gameState.addEnemy(this);
   },
 
   loadModel: function () {
-    const model = ModelManager.getClone('drone_white');
+    const model = modelManager.getClone('drone_white');
 
     if (model) {
       // GLBモデル使用
@@ -586,14 +514,11 @@ AFRAME.registerComponent('enemy-mobile', {
   },
 
   die: function () {
-    GameState.kills++;
+    gameState.incrementKills();
     updateHUD();
 
     // 配列から削除
-    const index = GameState.enemies.indexOf(this);
-    if (index > -1) {
-      GameState.enemies.splice(index, 1);
-    }
+    gameState.removeEnemy(this);
 
     // エンティティ削除
     if (this.el.parentNode) {
@@ -615,7 +540,7 @@ AFRAME.registerComponent('enemy-bullet', {
 
     const dist = this.el.object3D.position.distanceTo(camera.object3D.position);
     if (dist < 0.3) {
-      GameState.hits++;
+      gameState.incrementHits();
       updateHUD();
 
       // 弾丸削除
@@ -671,7 +596,7 @@ AFRAME.registerComponent('enemy-turret', {
     this.shootCooldown = 5000; // 5秒に一回
     this.lastShot = Date.now() - 3000; // 最初は少し待つ
 
-    GameState.enemies.push(this);
+    gameState.addEnemy(this);
   },
 
   tick: function (time, delta) {
@@ -755,13 +680,10 @@ AFRAME.registerComponent('enemy-turret', {
   },
 
   die: function () {
-    GameState.kills++;
+    gameState.incrementKills();
     updateHUD();
 
-    const index = GameState.enemies.indexOf(this);
-    if (index > -1) {
-      GameState.enemies.splice(index, 1);
-    }
+    gameState.removeEnemy(this);
 
     if (this.el.parentNode) {
       this.el.parentNode.removeChild(this.el);
@@ -782,15 +704,15 @@ document.addEventListener('DOMContentLoaded', function () {
     console.log('[Game] Scene loaded, initializing...');
 
     // ModelManagerの初期化
-    ModelManager.init();
+    modelManager.init();
 
     // GLBモデルをプリロード（失敗してもゲームは続行）
     try {
       const v = Date.now();
       await Promise.all([
-        ModelManager.load('drone_white', `/drone_white.glb?v=${v}`),
-        ModelManager.load('drone_black', `/drone_black.glb?v=${v}`),
-        ModelManager.load('sword', `/sword.glb?v=${v}`)
+        modelManager.load('drone_white', `/drone_white.glb?v=${v}`),
+        modelManager.load('drone_black', `/drone_black.glb?v=${v}`),
+        modelManager.load('sword', `/sword.glb?v=${v}`)
       ]);
       console.log('[Game] All models loaded successfully');
     } catch (error) {
@@ -823,11 +745,11 @@ AFRAME.registerComponent('enemy-drone-black', {
 
     this.loadModel();
 
-    GameState.enemies.push(this);
+    gameState.addEnemy(this);
   },
 
   loadModel: function () {
-    const model = ModelManager.getClone('drone_black');
+    const model = modelManager.getClone('drone_black');
 
     if (model) {
       model.scale.set(0.5, 0.5, 0.5);
@@ -919,7 +841,7 @@ AFRAME.registerComponent('enemy-drone-black', {
     if (camera) {
       const distance = this.el.object3D.position.distanceTo(camera.object3D.position);
       if (distance < 3) {
-        GameState.hits++;
+        gameState.incrementHits();
         updateHUD();
         console.log('[enemy-drone-black] Player hit by explosion!');
       }
@@ -937,13 +859,10 @@ AFRAME.registerComponent('enemy-drone-black', {
   },
 
   die: function () {
-    GameState.kills++;
+    gameState.incrementKills();
     updateHUD();
 
-    const index = GameState.enemies.indexOf(this);
-    if (index > -1) {
-      GameState.enemies.splice(index, 1);
-    }
+    gameState.removeEnemy(this);
 
     if (this.el.parentNode) {
       this.el.parentNode.removeChild(this.el);
@@ -1027,7 +946,7 @@ AFRAME.registerComponent('weapon-controller', {
     }
 
     // 初期状態は剣
-    GameState.currentWeapon = 'sword';
+    gameState.setCurrentWeapon('sword');
 
     // イベントリスナー
     this.el.addEventListener('triggerdown', this.onTriggerDown.bind(this));
@@ -1041,7 +960,7 @@ AFRAME.registerComponent('weapon-controller', {
     if (this.weaponEntity && this.weaponEntity.components.sword) {
       this.weaponEntity.components.sword.setMode(weaponType);
     }
-    GameState.currentWeapon = weaponType;
+    gameState.setCurrentWeapon(weaponType);
 
     // 振動フィードバック
     if (this.el.components.haptics) {
@@ -1053,7 +972,7 @@ AFRAME.registerComponent('weapon-controller', {
     this.triggerPressed = true;
 
     // 剣モードなら弓モードへ切り替え
-    if (GameState.currentWeapon === 'sword') {
+    if (gameState.getCurrentWeapon() === 'sword') {
       this.equipWeapon('bow');
       // 自動掴みは廃止（両手操作へ移行）
     }
@@ -1063,7 +982,7 @@ AFRAME.registerComponent('weapon-controller', {
     this.triggerPressed = false;
 
     // 弓モードなら矢を放って剣に戻る
-    if (GameState.currentWeapon === 'bow') {
+    if (gameState.getCurrentWeapon() === 'bow') {
       if (this.weaponEntity && this.weaponEntity.components.sword) {
         this.weaponEntity.components.sword.shoot();
       }
@@ -1079,7 +998,7 @@ AFRAME.registerComponent('weapon-controller', {
     this.gripPressed = true;
 
     // 弓を持っている時にグリップで弦を引く
-    if (GameState.currentWeapon === 'bow' && this.weaponEntity) {
+    if (gameState.getCurrentWeapon() === 'bow' && this.weaponEntity) {
       const bow = this.weaponEntity.components.bow;
       if (bow) {
         bow.startDraw();
@@ -1093,7 +1012,7 @@ AFRAME.registerComponent('weapon-controller', {
 
   tick: function () {
     // 剣の振りモーション検出
-    if (GameState.currentWeapon === 'sword' && this.weaponEntity) {
+    if (gameState.getCurrentWeapon() === 'sword' && this.weaponEntity) {
       const velocity = this.el.object3D.getWorldDirection(new THREE.Vector3());
       const speed = velocity.length();
 
@@ -1221,14 +1140,14 @@ AFRAME.registerComponent('player-arrow', {
 // ゲームクリア・リスタート機能
 // ========================================
 function checkGameClear() {
-  if (GameState.enemies.length === 0) {
+  if (gameState.getEnemies().length === 0) {
     showGameClear();
   }
 }
 
 function showGameClear() {
-  const elapsed = Math.floor((Date.now() - GameState.startTime) / 1000);
-  const score = calculateScore(elapsed, GameState.kills, GameState.hits);
+  const elapsed = Math.floor((Date.now() - gameState.getStartTime()) / 1000);
+  const score = calculateScore(elapsed, gameState.getKills(), gameState.getHits());
 
   const hud = document.getElementById('hud');
   hud.innerHTML = `

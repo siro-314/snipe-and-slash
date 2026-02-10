@@ -53,7 +53,7 @@ export interface GameStateType {
  */
 export interface Enemy {
   /** エンティティ要素 */
-  el: AFrame.Entity;
+  el: any; // A-Frameエンティティ（型定義複雑のためany）
   
   /** 体力 */
   health: number;
@@ -67,7 +67,7 @@ export interface Enemy {
  */
 export interface Projectile {
   /** エンティティ要素 */
-  el: AFrame.Entity;
+  el: any; // A-Frameエンティティ（型定義複雑のためany）
   
   /** 発射元（'player' または 'enemy'） */
   source: 'player' | 'enemy';
@@ -90,7 +90,7 @@ export interface ModelManagerType {
   models: Record<string, THREE.Object3D>;
   
   /** GLTFローダー */
-  loader: THREE.GLTFLoader | null;
+  loader: any | null; // GLTFLoader型は実行時にインポート
   
   /** 初期化 */
   init(): void;

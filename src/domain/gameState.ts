@@ -12,6 +12,9 @@ export interface GameStateData {
   enemies: Enemy[];
   projectiles: Projectile[];
   isGameStarted: boolean;
+  startTime: number; // ゲーム開始時刻
+  currentWeapon: 'sword' | 'bow';
+  activeHand: 'left' | 'right';
 }
 
 /**
@@ -27,7 +30,10 @@ export class GameStateManager {
       hits: 0,
       enemies: [],
       projectiles: [],
-      isGameStarted: false
+      isGameStarted: false,
+      startTime: Date.now(),
+      currentWeapon: 'sword',
+      activeHand: 'right'
     };
   }
 
@@ -64,6 +70,18 @@ export class GameStateManager {
     return Math.round((this.state.kills / this.state.hits) * 100);
   }
 
+  getStartTime(): number {
+    return this.state.startTime;
+  }
+
+  getCurrentWeapon(): 'sword' | 'bow' {
+    return this.state.currentWeapon;
+  }
+
+  getActiveHand(): 'left' | 'right' {
+    return this.state.activeHand;
+  }
+
   // ========================================
   // Setters（状態変更）
   // ========================================
@@ -98,6 +116,14 @@ export class GameStateManager {
     }
   }
 
+  setCurrentWeapon(weapon: 'sword' | 'bow'): void {
+    this.state.currentWeapon = weapon;
+  }
+
+  setActiveHand(hand: 'left' | 'right'): void {
+    this.state.activeHand = hand;
+  }
+
   startGame(): void {
     this.state.isGameStarted = true;
   }
@@ -108,7 +134,10 @@ export class GameStateManager {
       hits: 0,
       enemies: [],
       projectiles: [],
-      isGameStarted: false
+      isGameStarted: false,
+      startTime: Date.now(),
+      currentWeapon: 'sword',
+      activeHand: 'right'
     };
   }
 
