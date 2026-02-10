@@ -1,0 +1,25 @@
+{
+  "name": "snipe-and-slash",
+  "version": "1.0.0",
+  "description": "WebXR VR Game - Browser-based sword and bow action game",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "aframe": "^1.4.2",
+    "three": "^0.160.0"
+  },
+  "devDependencies": {
+    "@types/aframe": "^1.2.2",
+    "@types/three": "^0.160.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.11"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
