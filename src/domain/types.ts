@@ -60,6 +60,12 @@ export interface Enemy {
   
   /** 敵のタイプ */
   type: 'white' | 'black' | 'turret';
+  
+  /** ダメージを受ける関数 */
+  takeDamage: () => void;
+  
+  /** 最終被弾時刻（多段ヒット防止用） */
+  lastHitTime?: number;
 }
 
 /**
