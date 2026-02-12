@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+// THREE はA-Frameのグローバルを使用（global.d.ts で型定義）
 
 /**
  * 弾丸コンポーネント

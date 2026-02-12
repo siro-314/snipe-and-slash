@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+// THREE はA-Frameのグローバルを使用（global.d.ts で型定義）
 import { modelManager } from '../../managers/modelManager';
 
 /**
@@ -62,9 +62,8 @@ export function registerSwordComponent() {
         console.log(`[sword] Applied rotation: ${model.rotation.x}, ${model.rotation.y}, ${model.rotation.z}`);
 
         // モデル内のパーツを取得
-        model.traverse(node => {
-          if ((node as THREE.Mesh).isMesh) {
-            const mesh = node as THREE.Mesh;
+        model.traverse((node: any) => {
+          if (node.isMesh) {
             if (node.name.includes('上ブレード')) this.upperBlade = node;
             if (node.name.includes('下ブレード')) this.lowerBlade = node;
             if (node.name.includes('弦')) this.string = node;

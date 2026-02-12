@@ -24,22 +24,22 @@ export type HandType = 'left' | 'right';
 export interface GameStateType {
   /** 倒した敵の数 */
   kills: number;
-  
+
   /** 被弾数 */
   hits: number;
-  
+
   /** ゲーム開始時刻（ミリ秒） */
   startTime: number;
-  
+
   /** 敵のリスト */
   enemies: Enemy[];
-  
+
   /** 弾丸のリスト */
   projectiles: Projectile[];
-  
+
   /** 現在の武器 */
   currentWeapon: WeaponType;
-  
+
   /** アクティブな手 */
   activeHand: HandType;
 }
@@ -54,16 +54,16 @@ export interface GameStateType {
 export interface Enemy {
   /** エンティティ要素 */
   el: any; // A-Frameエンティティ（型定義複雑のためany）
-  
+
   /** 体力 */
   health: number;
-  
+
   /** 敵のタイプ */
   type: 'white' | 'black' | 'turret';
-  
+
   /** ダメージを受ける関数 */
   takeDamage: () => void;
-  
+
   /** 最終被弾時刻（多段ヒット防止用） */
   lastHitTime?: number;
 }
@@ -74,7 +74,7 @@ export interface Enemy {
 export interface Projectile {
   /** エンティティ要素 */
   el: any; // A-Frameエンティティ（型定義複雑のためany）
-  
+
   /** 発射元（'player' または 'enemy'） */
   source: 'player' | 'enemy';
 }
@@ -93,19 +93,19 @@ export type ModelName = 'drone_white' | 'drone_black' | 'sword';
  */
 export interface ModelManagerType {
   /** ロード済みモデルのマップ */
-  models: Record<string, THREE.Object3D>;
-  
+  models: Record<string, any>;
+
   /** GLTFローダー */
   loader: any | null; // GLTFLoader型は実行時にインポート
-  
+
   /** 初期化 */
   init(): void;
-  
+
   /** モデルをロード */
-  load(name: ModelName, url: string): Promise<THREE.Object3D>;
-  
+  load(name: ModelName, url: string): Promise<any>;
+
   /** モデルのクローンを取得 */
-  getClone(name: ModelName): THREE.Object3D | null;
+  getClone(name: ModelName): any | null;
 }
 
 // ========================================
@@ -126,10 +126,10 @@ export interface SwordComponentData {
 export interface EnemyAIData {
   /** 敵のタイプ */
   type: 'white' | 'black' | 'turret';
-  
+
   /** 移動速度 */
   speed?: number;
-  
+
   /** 射撃間隔（ミリ秒） */
   shootInterval?: number;
 }
@@ -140,12 +140,12 @@ export interface EnemyAIData {
 export interface ProjectileData {
   /** 移動速度 */
   speed: number;
-  
+
   /** 発射元 */
   source: 'player' | 'enemy';
-  
+
   /** 方向ベクトル */
-  direction: THREE.Vector3;
+  direction: any;
 }
 
 // ========================================
@@ -172,13 +172,13 @@ export type ColorString = string;
 export interface ScoreResult {
   /** 基本スコア */
   baseScore: number;
-  
+
   /** 被弾ペナルティ */
   hitPenalty: number;
-  
+
   /** 時間ペナルティ */
   timePenalty: number;
-  
+
   /** 最終スコア */
   finalScore: number;
 }

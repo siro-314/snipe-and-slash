@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+// THREE はA-Frameのグローバルを使用（global.d.ts で型定義）
 import { gameState } from '../../domain/gameState';
 import { modelManager } from '../../managers/modelManager';
 import { hudManager } from '../../managers/hudManager';

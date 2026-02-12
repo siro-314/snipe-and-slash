@@ -1,5 +1,5 @@
+// THREE はA-Frameのグローバルを使用（global.d.ts で型定義）
 import { gameState } from '../domain/gameState';
-import * as THREE from 'three';
 
 /**
  * VRコントローラー操作管理コンポーネント
@@ -35,7 +35,7 @@ export function registerWeaponControllerComponent() {
 
     spawnWeapon: function () {
       if (this.weaponSpawned) return;
-      
+
       this.weaponEntity = document.createElement('a-entity');
       this.weaponEntity.setAttribute('sword', `hand: ${this.data.hand}`);
       this.weaponEntity.setAttribute('position', '0 0 -0.1');

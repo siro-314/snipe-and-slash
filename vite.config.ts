@@ -9,6 +9,13 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: './index.html'
+      },
+      // three をバンドルに含めない（A-FrameのグローバルTHREEを使用）
+      external: ['three', /^three\//],
+      output: {
+        globals: {
+          three: 'THREE'
+        }
       }
     }
   },

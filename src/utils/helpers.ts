@@ -4,13 +4,13 @@
  * - Pure関数（副作用なし）
  */
 
-import * as THREE from 'three';
+// THREE はA-Frameのグローバルを使用（global.d.ts で型定義）
 
 /**
  * Blenderから移植したモデルの座標・回転を補正
  * @param object Three.jsオブジェクト
  */
-export function applyBlenderCorrection(object: THREE.Object3D): void {
+export function applyBlenderCorrection(object: any): void {
   // Blenderの座標系（Z-up）をThree.js（Y-up）に変換
   object.rotation.x = -Math.PI / 2;
   console.log('[Utils] Applied Blender correction');
@@ -22,7 +22,7 @@ export function applyBlenderCorrection(object: THREE.Object3D): void {
  * @param obj2 オブジェクト2
  * @returns 距離
  */
-export function getDistance(obj1: THREE.Object3D, obj2: THREE.Object3D): number {
+export function getDistance(obj1: any, obj2: any): number {
   return obj1.position.distanceTo(obj2.position);
 }
 
@@ -33,7 +33,7 @@ export function getDistance(obj1: THREE.Object3D, obj2: THREE.Object3D): number 
  * @param range 範囲
  * @returns 範囲内ならtrue
  */
-export function isInRange(obj1: THREE.Object3D, obj2: THREE.Object3D, range: number): boolean {
+export function isInRange(obj1: any, obj2: any, range: number): boolean {
   return getDistance(obj1, obj2) <= range;
 }
 
@@ -43,10 +43,10 @@ export function isInRange(obj1: THREE.Object3D, obj2: THREE.Object3D, range: num
  * @param height 高さ
  * @returns THREE.Vector3
  */
-export function getRandomSpawnPosition(radius: number = 15, height: number = 1.6): THREE.Vector3 {
+export function getRandomSpawnPosition(radius: number = 15, height: number = 1.6): any {
   const angle = Math.random() * Math.PI * 2;
   const distance = 5 + Math.random() * radius;
-  
+
   return new THREE.Vector3(
     Math.cos(angle) * distance,
     height,
@@ -88,7 +88,7 @@ export function getRandomElement<T>(array: T[]): T {
  * @param name オブジェクト名
  * @param obj Three.jsオブジェクト
  */
-export function debugPosition(name: string, obj: THREE.Object3D): void {
+export function debugPosition(name: string, obj: any): void {
   console.log(`[Debug] ${name} position:`, {
     x: obj.position.x.toFixed(2),
     y: obj.position.y.toFixed(2),

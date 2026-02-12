@@ -1,6 +1,6 @@
+// THREE はA-Frameのグローバルを使用（global.d.ts で型定義）
 import { gameState } from '../../domain/gameState';
 import { modelManager } from '../../managers/modelManager';
-import * as THREE from 'three';
 
 /**
  * 敵コンポーネント: 黒ドローン（自爆型）
