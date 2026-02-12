@@ -287,5 +287,85 @@ git reset --hard phase-1-complete
 
 **本番URL**: https://playful-concha-6af59f.netlify.app  
 **GitHub**: https://github.com/siro-314/snipe-and-slash  
-**最終更新**: 2026-02-11 Phase 4完了（main.ts 1193行→273行、920行削減）  
-**次のタスク**: GitHubへpush → Netlify自動デプロイ → Quest 2でVR確認
+**最終更新**: 2026-02-11 Phase 4完了・GitHubプッシュ完了（commit abd2074）  
+**次のタスク**: Netlify設定確認 → VR実機確認（Phase 5）
+
+---
+
+## 🚨 次のClaude向け重要メモ
+
+### Netlify自動デプロイが動いていない可能性
+
+**状況**:
+- Phase 4完了後、GitHubへpush完了（commit abd2074）
+- しかし、Netlifyが自動デプロイされていない様子
+- 本番URLが更新されていない可能性が高い
+
+**原因の可能性**:
+1. Netlifyのブランチ設定が `main` のみで、`refactor/typescript-migration` ブランチを監視していない
+2. ビルドコマンドやデプロイ設定に問題がある
+3. GitHubとNetlifyの連携が切れている
+
+**次回の対応手順**:
+1. **ブラウザMCPを使ってNetlify管理画面にアクセス**
+   ```
+   browser_navigate: https://app.netlify.com
+   ```
+
+2. **サイト設定を確認**
+   - Site settings → Build & deploy → Continuous deployment
+   - Branch deploysの設定を確認
+   - `refactor/typescript-migration` ブランチが監視対象になっているか確認
+
+3. **ブランチデプロイ設定を追加**
+   - 「Deploy contexts」で `refactor/typescript-migration` を追加
+   - または、`main` ブランチにマージしてから確認
+
+4. **手動デプロイでテスト**
+   - Deploys → Trigger deploy → Deploy site
+   - これで最新のコミットがデプロイされるか確認
+
+5. **ビルドログを確認**
+   - デプロイ失敗している場合、ログでエラーを確認
+   - `npm run build` が正常に動作しているか確認
+
+**推奨アクション**:
+- まずはブラウザMCPでNetlify管理画面を開く
+- Site settings → Build & deploy を確認
+- 必要に応じて手動デプロイを実行
+- 設定変更後、再度GitHubへpushして自動デプロイをテスト
+
+**緊急時の代替案**:
+- `refactor/typescript-migration` を `main` にマージする
+- Vercelなど別のホスティングサービスに切り替える
+
+---
+---
+
+## 🚨 次のClaude向け重要メモ
+
+### Netlify自動デプロイが動いていない可能性
+
+**状況**:
+- Phase 4完了後、GitHubへpush完了（commit abd2074）
+- しかし、Netlifyが自動デプロイされていない様子
+- 本番URLが更新されていない可能性が高い
+
+**詳細な対応手順は `NEXT_CLAUDE_TODO.md` を参照してください！**
+
+このファイルには以下が記載されています：
+- ブラウザMCPを使ったNetlify設定確認の具体的手順
+- Branch deploys設定の変更方法
+- 手動デプロイの実行方法
+- トラブルシューティングガイド
+- 完了後の次のステップ
+
+**クイックアクション**:
+1. `NEXT_CLAUDE_TODO.md` を読む
+2. ブラウザMCPでNetlify管理画面を開く
+3. Branch deploys設定を確認・修正
+4. 手動デプロイを実行して動作確認
+
+---
+
+## 5. アカウント切り替え後の再開コマンド
