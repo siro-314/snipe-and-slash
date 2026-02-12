@@ -284,6 +284,10 @@ document.addEventListener('DOMContentLoaded', function () {
     // 敵を配置
     spawnEnemies();
     
+    // 武器を生成（カスタムイベント発火）
+    const scene = document.querySelector('a-scene');
+    scene.dispatchEvent(new Event('game-started'));
+    
     // スタート画面を非表示
     startScreen.style.display = 'none';
     

@@ -15,10 +15,27 @@ export function registerWeaponControllerComponent() {
       this.weaponEntity = null;
       this.triggerPressed = false;
       this.gripPressed = false;
+      this.weaponSpawned = false;
 
       const otherHandId = this.data.hand === 'right' ? 'leftHand' : 'rightHand';
       this.otherHand = document.getElementById(otherHandId);
 
+      // 剣の生成はゲーム開始後に遅延（カスタムイベントで制御）
+      this.el.sceneEl.addEventListener('game-started', () => {
+        this.spawnWeapon();
+      });
+
+      gameState.setCurrentWeapon('sword');
+
+      this.el.addEventListener('triggerdown', this.onTriggerDown.bind(this));
+      this.el.addEventListener('triggerup', this.onTriggerUp.bind(this));
+      this.el.addEventListener('gripdown', this.onGripDown.bind(this));
+      this.el.addEventListener('gripup', this.onGripUp.bind(this));
+    },
+
+    spawnWeapon: function () {
+      if (this.weaponSpawned) return;
+      
       this.weaponEntity = document.createElement('a-entity');
       this.weaponEntity.setAttribute('sword', `hand: ${this.data.hand}`);
       this.weaponEntity.setAttribute('position', '0 0 -0.1');
@@ -34,12 +51,8 @@ export function registerWeaponControllerComponent() {
         });
       }
 
-      gameState.setCurrentWeapon('sword');
-
-      this.el.addEventListener('triggerdown', this.onTriggerDown.bind(this));
-      this.el.addEventListener('triggerup', this.onTriggerUp.bind(this));
-      this.el.addEventListener('gripdown', this.onGripDown.bind(this));
-      this.el.addEventListener('gripup', this.onGripUp.bind(this));
+      this.weaponSpawned = true;
+      console.log(`[weapon-controller] Weapon spawned for ${this.data.hand} hand`);
     },
 
     equipWeapon: function (weaponType) {
