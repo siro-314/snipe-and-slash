@@ -102,7 +102,7 @@ registerEnemyDroneBlackComponent(updateHUD, checkGameClear);
 registerWeaponControllerComponent();
 
 // ========================================
-// 初期化: モデルプリロード → 敵配置
+// 初期化: ModelManager初期化 → 敵配置はSTARTボタン後
 // ========================================
 document.addEventListener('DOMContentLoaded', function () {
   const scene = document.querySelector('a-scene');
@@ -110,31 +110,38 @@ document.addEventListener('DOMContentLoaded', function () {
   scene.addEventListener('loaded', async function () {
     console.log('[Game] Scene loaded, initializing...');
 
-    // ModelManagerの初期化
+    // ModelManagerの初期化（ローダーのみセットアップ）
     modelManager.init();
-
-    // GLBモデルをプリロード（失敗してもゲームは続行）
-    try {
-      const v = Date.now();
-      await Promise.all([
-        modelManager.load('drone_white', `/drone_white.glb?v=${v}`),
-        modelManager.load('drone_black', `/drone_black.glb?v=${v}`),
-        modelManager.load('sword', `/sword.glb?v=${v}`)
-      ]);
-      console.log('[Game] All models loaded successfully');
-    } catch (error) {
-      console.warn('[Game] Some models failed to load, using fallback geometry:', error.message);
-    }
-
-    // 敵を配置
-    spawnEnemies();
+    console.log('[Game] ModelManager initialized');
 
     // HUD更新ループ
     setInterval(updateHUD, 100);
 
-    console.log('[Game] Initialization complete');
+    console.log('[Game] Scene initialization complete');
   });
 });
+
+/**
+ * GLBモデルをプリロード
+ * - STARTボタンクリック時に実行
+ * - 全モデルのロード完了を待つ
+ */
+async function preloadModels() {
+  try {
+    const v = Date.now();
+    console.log('[Game] Preloading models...');
+    
+    await Promise.all([
+      modelManager.load('drone_white', `/drone_white.glb?v=${v}`),
+      modelManager.load('drone_black', `/drone_black.glb?v=${v}`),
+      modelManager.load('sword', `/sword.glb?v=${v}`)
+    ]);
+    
+    console.log('[Game] ✅ All models loaded successfully');
+  } catch (error) {
+    console.warn('[Game] ⚠️ Some models failed to load, using fallback geometry:', error.message);
+  }
+}
 
 // ========================================
 // 敵コンポーネント: 黒ドローン（自爆型）→ enemies/enemyDroneBlackComponent.tsに移動
@@ -234,8 +241,8 @@ function showGameClear() {
   hud.innerHTML = `
     <h2 style="color: #00ff00; font-size: 24px;">🎉 GAME CLEAR!</h2>
     <div>時間: ${elapsed}秒</div>
-    <div>キル数: ${GameState.kills}</div>
-    <div>被弾数: ${GameState.hits}</div>
+    <div>キル数: ${gameState.kills}</div>
+    <div>被弾数: ${gameState.hits}</div>
     <div style="font-size: 20px; margin-top: 10px;">スコア: ${score}</div>
     <button onclick="restartGame()" style="margin-top: 15px; padding: 10px 20px; font-size: 16px; cursor: pointer;">
       もう一度プレイ
@@ -266,8 +273,23 @@ document.addEventListener('DOMContentLoaded', function () {
   const startButton = document.getElementById('startButton');
   const startScreen = document.getElementById('startScreen');
 
-  startButton.addEventListener('click', function () {
+  startButton.addEventListener('click', async function () {
+    // STARTボタンを無効化（二重クリック防止）
+    startButton.disabled = true;
+    startButton.textContent = 'Loading...';
+    
+    // モデルプリロード完了を待つ
+    await preloadModels();
+    
+    // 敵を配置
+    spawnEnemies();
+    
+    // スタート画面を非表示
     startScreen.style.display = 'none';
-    GameState.startTime = Date.now(); // ゲーム開始時刻をリセット
+    
+    // ゲーム開始時刻をリセット
+    gameState.startTime = Date.now();
+    
+    console.log('[Game] Game started!');
   });
 });
