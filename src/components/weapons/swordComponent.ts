@@ -4,6 +4,14 @@ import { modelManager } from '../../managers/modelManager';
 /**
  * 剣コンポーネント
  * 剣モード⇔弓モードを切り替える武器システム
+ * 
+ * 弓操作フロー:
+ *   1. weapon-controllerがトリガーで弓モードに切り替え
+ *   2. 反対の手のグリップを押す → 弦の近くなら掴み開始 (startDraw)
+ *   3. 反対の手を引く → drawProgress が増加（モーフ連動）
+ *   4. グリップを離す → 矢を発射 (shoot)
+ *   5. 射出後、_returnToSwordRequested フラグを立てる
+ *      → weapon-controller が検知して剣モードに戻す
  */
 export function registerSwordComponent() {
   AFRAME.registerComponent('sword', {
@@ -26,6 +34,9 @@ export function registerSwordComponent() {
       this.isGrabbingString = false;
       this.otherHandGripping = false;
 
+      // weapon-controller が検知する射出後復帰フラグ
+      this._returnToSwordRequested = false;
+
       // メッシュ参照
       this.upperBlade = null;
       this.lowerBlade = null;
@@ -33,8 +44,8 @@ export function registerSwordComponent() {
       this.arrowPrefab = null; // 矢の原本（クローン用）
 
       // デバッグ用マーカー（弦の掴み位置）
-      const markerGeo = new THREE.SphereGeometry(0.05, 16, 16);
-      const markerMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.5, wireframe: true });
+      const markerGeo = new THREE.SphereGeometry(0.08, 16, 16);
+      const markerMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.6, wireframe: true });
       this.nockMarker = new THREE.Mesh(markerGeo, markerMat);
       this.nockMarker.visible = false;
       this.el.sceneEl.object3D.add(this.nockMarker);
@@ -110,21 +121,20 @@ export function registerSwordComponent() {
     },
 
     // 逆の手を設定（weapon-controllerから呼ばれる）
-    setOtherHand: function (el) {
+    setOtherHand: function (el: any) {
       this.otherHand = el;
 
-      // イベントリスナー
+      // グリップ押下: 弓モードで弦の近くなら掴み開始
       el.addEventListener('gripdown', () => {
         this.otherHandGripping = true;
-        // 弦の近くなら掴み開始
         if (this.mode === 'bow' && this.isNearString()) {
           this.startDraw();
         }
       });
 
+      // グリップ解放: 掴んでいたら発射
       el.addEventListener('gripup', () => {
         this.otherHandGripping = false;
-        // 掴んでいたら発射
         if (this.isGrabbingString) {
           this.shoot();
         }
@@ -132,15 +142,15 @@ export function registerSwordComponent() {
     },
 
     // 弦に近いか判定
-    isNearString: function () {
+    isNearString: function (): boolean {
       if (!this.otherHand || !this.nockMarker) return false;
       const handPos = this.otherHand.object3D.getWorldPosition(new THREE.Vector3());
       const markerPos = this.nockMarker.position;
       const dist = handPos.distanceTo(markerPos);
-      return dist < 0.4; // 判定緩和
+      return dist < 0.5; // 50cm以内なら弦を掴める（VRではある程度余裕を持たせる）
     },
 
-    setMode: function (mode) {
+    setMode: function (mode: string) {
       this.mode = mode;
       if (!this.modelLoaded) return;
 
@@ -182,6 +192,8 @@ export function registerSwordComponent() {
         this.arrow.visible = true;
         if (this.arrow.material) this.arrow.material.opacity = 0;
       }
+
+      console.log('[sword/bow] String grabbed! Pull back to draw.');
     },
 
     shoot: function () {
@@ -190,12 +202,15 @@ export function registerSwordComponent() {
       // 最低限引いてないと撃てない（誤射防止）
       if (this.drawProgress < 0.2) {
         // キャンセル扱い
+        console.log('[sword/bow] Draw too weak, cancelling shot.');
         this.isGrabbingString = false;
         this.isDrawn = false;
         this.updateMorphs(0);
         if (this.arrow) this.arrow.visible = false;
         return;
       }
+
+      console.log(`[sword/bow] Shooting! Draw progress: ${this.drawProgress.toFixed(2)}`);
 
       // 矢の発射（モデルクローン）
       let arrowMesh;
@@ -234,12 +249,12 @@ export function registerSwordComponent() {
 
       arrowEntity.setAttribute('position', pos);
 
-      // 威力や速度を引き具合で変える？ 今回は固定かつ高速に（少し遅くして視認性確保）
+      // 威力や速度を引き具合で変える
       const speed = 10 + (this.drawProgress * 15); // 10~25
       arrowEntity.setAttribute('projectile', `direction: ${dir.x} ${dir.y} ${dir.z}; speed: ${speed}`);
       arrowEntity.setAttribute('player-arrow', '');
 
-      document.querySelector('a-scene').appendChild(arrowEntity);
+      (document.querySelector('a-scene') as any).appendChild(arrowEntity);
 
       // リセット
       this.isGrabbingString = false;
@@ -248,12 +263,15 @@ export function registerSwordComponent() {
       this.updateMorphs(0);
       if (this.arrow) this.arrow.visible = false;
 
-      if (this.el.components.haptics) {
-        this.el.components.haptics.pulse(1.0, 50);
+      if ((this.el as any).components.haptics) {
+        (this.el as any).components.haptics.pulse(1.0, 50);
       }
+
+      // weapon-controller に剣モードへ戻すことをリクエスト
+      this._returnToSwordRequested = true;
     },
 
-    updateMorphs: function (value) {
+    updateMorphs: function (value: number) {
       if (this.string && this.string.morphTargetInfluences) {
         this.string.morphTargetInfluences[this.morphIndex] = value;
       }
@@ -262,7 +280,7 @@ export function registerSwordComponent() {
       }
     },
 
-    tick: function (time, delta) {
+    tick: function (_time: number, delta: number) {
       if (!this.modelLoaded) {
         this.retryTimer += delta;
         if (this.retryTimer > 500) {
@@ -272,9 +290,9 @@ export function registerSwordComponent() {
         return;
       }
 
-      // マーカー位置更新
+      // マーカー位置更新（弓モード時）
       if (this.mode === 'bow' && this.nockMarker) {
-        // グリップから少しずらした位置を判定基準にする
+        // 弓の弦の位置 = グリップから前方に少しオフセット
         const offset = new THREE.Vector3(0, 0, 0.2);
         offset.applyQuaternion(this.el.object3D.getWorldQuaternion(new THREE.Quaternion()));
         const worldPos = this.el.object3D.getWorldPosition(new THREE.Vector3()).add(offset);
@@ -290,7 +308,7 @@ export function registerSwordComponent() {
         }
       }
 
-      // 両手操作ロジック
+      // 両手操作ロジック: 弦を引いている間のドロー処理
       if (this.mode === 'bow' && this.isGrabbingString && this.otherHand) {
         const handPos = this.otherHand.object3D.getWorldPosition(new THREE.Vector3());
         const bowPos = this.el.object3D.getWorldPosition(new THREE.Vector3());
@@ -308,8 +326,8 @@ export function registerSwordComponent() {
         // 振動フィードバック
         if (this.drawProgress > 0 && this.drawProgress < 1) {
           // 弓を持ってる手
-          if (this.el.components.haptics && Math.random() < 0.1) {
-            this.el.components.haptics.pulse(0.1 + this.drawProgress * 0.2, 10);
+          if ((this.el as any).components.haptics && Math.random() < 0.1) {
+            (this.el as any).components.haptics.pulse(0.1 + this.drawProgress * 0.2, 10);
           }
         }
       }

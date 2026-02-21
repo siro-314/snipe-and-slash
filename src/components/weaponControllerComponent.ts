@@ -4,6 +4,12 @@ import { gameState } from '../domain/gameState';
 /**
  * VRコントローラー操作管理コンポーネント
  * トリガー・グリップボタンで武器を操作
+ * 
+ * 操作フロー:
+ *   剣モード: コントローラーを振ると斬撃（速度ベースの判定）
+ *   弓モード: トリガーで切り替え → 反対の手のグリップで弦を掴む → 引いて離すと発射
+ * 
+ * 切り替え: トリガーを押すと剣⇔弓がトグル
  */
 export function registerWeaponControllerComponent() {
   AFRAME.registerComponent('weapon-controller', {
@@ -16,6 +22,11 @@ export function registerWeaponControllerComponent() {
       this.triggerPressed = false;
       this.gripPressed = false;
       this.weaponSpawned = false;
+
+      // 剣の速度計測用: 前フレームのワールド座標
+      this.prevSwordWorldPos = new THREE.Vector3();
+      this.hasPrevPos = false;
+      this.swordSwingSpeed = 0;
 
       const otherHandId = this.data.hand === 'right' ? 'leftHand' : 'rightHand';
       this.otherHand = document.getElementById(otherHandId);
@@ -44,7 +55,7 @@ export function registerWeaponControllerComponent() {
       if (this.weaponEntity.components.sword) {
         this.weaponEntity.components.sword.setOtherHand(this.otherHand);
       } else {
-        this.weaponEntity.addEventListener('componentinitialized', (evt) => {
+        this.weaponEntity.addEventListener('componentinitialized', (evt: any) => {
           if (evt.detail.name === 'sword') {
             this.weaponEntity.components.sword.setOtherHand(this.otherHand);
           }
@@ -55,94 +66,134 @@ export function registerWeaponControllerComponent() {
       console.log(`[weapon-controller] Weapon spawned for ${this.data.hand} hand`);
     },
 
-    equipWeapon: function (weaponType) {
+    equipWeapon: function (weaponType: 'sword' | 'bow') {
       if (this.weaponEntity && this.weaponEntity.components.sword) {
         this.weaponEntity.components.sword.setMode(weaponType);
       }
       gameState.setCurrentWeapon(weaponType);
 
-      if (this.el.components.haptics) {
-        this.el.components.haptics.pulse(0.5, 100);
+      if ((this.el as any).components.haptics) {
+        (this.el as any).components.haptics.pulse(0.5, 100);
       }
     },
 
-    onTriggerDown: function (evt) {
+    // ===== トリガー: 剣⇔弓のトグル =====
+    onTriggerDown: function (_evt: any) {
       this.triggerPressed = true;
 
+      // 剣モード → 弓モードに切り替え
       if (gameState.getCurrentWeapon() === 'sword') {
         this.equipWeapon('bow');
       }
+      // 弓モード中のトリガーダウンは何もしない（弦操作はグリップで行う）
     },
 
-    onTriggerUp: function (evt) {
+    onTriggerUp: function (_evt: any) {
       this.triggerPressed = false;
 
+      // 弓モード → 剣モードに戻す
+      // ただし弦を引いてる最中は戻さない（グリップリリースで発射→自動で戻る）
       if (gameState.getCurrentWeapon() === 'bow') {
-        if (this.weaponEntity && this.weaponEntity.components.sword) {
-          this.weaponEntity.components.sword.shoot();
-        }
-
-        setTimeout(() => {
+        const swordComp = this.weaponEntity?.components?.sword;
+        if (swordComp && !swordComp.isGrabbingString && !swordComp.isDrawn) {
+          // 弦を掴んでない状態でトリガーを離したら剣に戻す
           this.equipWeapon('sword');
-        }, 200);
-      }
-    },
-
-    onGripDown: function (evt) {
-      this.gripPressed = true;
-
-      if (gameState.getCurrentWeapon() === 'bow' && this.weaponEntity) {
-        const bow = this.weaponEntity.components.bow;
-        if (bow) {
-          bow.startDraw();
         }
+        // 弦を掴んでいる場合はグリップリリースで発射→その後に剣に戻す
       }
     },
 
-    onGripUp: function (evt) {
-      this.gripPressed = false;
+    // ===== グリップ: 弓モード中の弦操作 =====
+    onGripDown: function (_evt: any) {
+      this.gripPressed = true;
+      // 弓の弦掴みは swordComponent の setOtherHand で直接処理している
+      // (otherHand の gripdown イベントを sword コンポーネントがリスンしている)
     },
 
-    tick: function () {
-      if (gameState.getCurrentWeapon() === 'sword' && this.weaponEntity) {
-        const velocity = this.el.object3D.getWorldDirection(new THREE.Vector3());
-        const speed = velocity.length();
+    onGripUp: function (_evt: any) {
+      this.gripPressed = false;
+      // グリップリリースも swordComponent の setOtherHand で直接処理
+      // (shoot後の剣モード復帰はここで行う)
+    },
 
-        if (speed > 0.5) {
+    tick: function (_time: number, delta: number) {
+      // 剣モード: 振りの速度判定で斬撃チェック
+      if (gameState.getCurrentWeapon() === 'sword' && this.weaponEntity) {
+        this.updateSwordSwingSpeed(delta);
+
+        // 実際にコントローラーが高速で動いているときだけ斬撃判定
+        if (this.swordSwingSpeed > 1.5) { // 1.5 m/s 以上で振りと判定
           this.checkSwordHit();
         }
       }
+
+      // 弓モード中に弦を引いて射出した後、剣に戻す処理
+      if (gameState.getCurrentWeapon() === 'bow' && this.weaponEntity) {
+        const swordComp = this.weaponEntity.components?.sword;
+        if (swordComp && swordComp._returnToSwordRequested) {
+          swordComp._returnToSwordRequested = false;
+          setTimeout(() => {
+            this.equipWeapon('sword');
+          }, 300);
+        }
+      }
+    },
+
+    /**
+     * コントローラーのワールド座標の移動速度を計算
+     * getWorldDirection() は正規化ベクトル（常に長さ1）なので速度には使えない
+     */
+    updateSwordSwingSpeed: function (delta: number) {
+      if (!this.weaponEntity) return;
+
+      const currentPos = this.weaponEntity.object3D.getWorldPosition(new THREE.Vector3());
+
+      if (this.hasPrevPos) {
+        const dist = currentPos.distanceTo(this.prevSwordWorldPos);
+        const dt = delta / 1000; // ミリ秒→秒
+        this.swordSwingSpeed = dt > 0 ? dist / dt : 0; // m/s
+      }
+
+      this.prevSwordWorldPos.copy(currentPos);
+      this.hasPrevPos = true;
     },
 
     checkSwordHit: function () {
       if (!this.weaponEntity) return;
 
       const swordComp = this.weaponEntity.components.sword;
-      if (!swordComp || !swordComp.blade || !swordComp.isReady) return;
+      if (!swordComp || !swordComp.isReady) return;
 
-      const swordMesh = swordComp.blade;
-      const swordBox = new THREE.Box3().setFromObject(swordMesh);
+      // 剣の先端付近のワールド座標でスフィアキャスト的な判定をする
+      // Box3().setFromObject() はモデル全体を包むので巨大になりやすい
+      // → コントローラー位置から剣の前方方向に沿った線分で判定
+      const swordWorldPos = this.weaponEntity.object3D.getWorldPosition(new THREE.Vector3());
+      const swordDir = new THREE.Vector3(0, 0, -1);
+      swordDir.applyQuaternion(this.weaponEntity.object3D.getWorldQuaternion(new THREE.Quaternion()));
 
-      const size = new THREE.Vector3();
-      swordBox.getSize(size);
-      if (size.length() > 5) {
-        if (!this.warnedHugeBox) {
-          console.warn('[checkSwordHit] Sword Box too huge! Ignoring hit.', size);
-          this.warnedHugeBox = true;
-        }
-        return;
-      }
+      // 剣の刃の範囲: 根本(0.1m)〜先端(0.8m)
+      const bladeStart = swordWorldPos.clone().add(swordDir.clone().multiplyScalar(0.1));
+      const bladeEnd = swordWorldPos.clone().add(swordDir.clone().multiplyScalar(0.8));
 
-      gameState.getEnemies().forEach(enemy => {
+      // 刃の中間点
+      const bladeMid = bladeStart.clone().add(bladeEnd).multiplyScalar(0.5);
+
+      // 判定半径（刃の太さ + 余裕）
+      const hitRadius = 0.3; // 0.3m
+
+      gameState.getEnemies().forEach((enemy: any) => {
         const enemyEl = enemy.el;
         if (!enemyEl) return;
 
-        const enemyMesh = enemyEl.getObject3D('mesh');
-        if (!enemyMesh) return;
+        const enemyPos = enemyEl.object3D.getWorldPosition(new THREE.Vector3());
 
-        const enemyBox = new THREE.Box3().setFromObject(enemyMesh);
+        // 剣の線分（bladeStart〜bladeEnd）と敵の中心点の最近接距離
+        const dist = this.pointToSegmentDistance(enemyPos, bladeStart, bladeEnd);
 
-        if (swordBox.intersectsBox(enemyBox)) {
+        // 敵の半径（おおよそ0.3〜0.5m）
+        const enemyRadius = 0.5;
+
+        if (dist < hitRadius + enemyRadius) {
           const now = Date.now();
           if (!enemy.lastHitTime || now - enemy.lastHitTime > 400) {
             enemy.takeDamage();
@@ -153,15 +204,26 @@ export function registerWeaponControllerComponent() {
               for (let i = 0; i < gamepads.length; i++) {
                 const gp = gamepads[i];
                 if (gp && gp.hapticActuators && gp.hapticActuators.length > 0) {
-                  gp.hapticActuators[0].pulse(1.0, 50);
+                  (gp.hapticActuators[0] as any).pulse(1.0, 50);
                 }
               }
             }
 
-            console.log('Sword SLASH Hit!');
+            console.log(`Sword SLASH Hit! (swing speed: ${this.swordSwingSpeed.toFixed(1)} m/s, dist: ${dist.toFixed(2)}m)`);
           }
         }
       });
+    },
+
+    /**
+     * 点Pから線分(A,B)への最近接距離を計算
+     */
+    pointToSegmentDistance: function (p: any, a: any, b: any): number {
+      const ab = new THREE.Vector3().subVectors(b, a);
+      const ap = new THREE.Vector3().subVectors(p, a);
+      const t = Math.max(0, Math.min(1, ap.dot(ab) / ab.dot(ab)));
+      const closest = a.clone().add(ab.multiplyScalar(t));
+      return p.distanceTo(closest);
     }
   });
 }
