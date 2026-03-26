@@ -43,12 +43,20 @@ export function registerSwordComponent() {
       this.arrow = null;
       this.arrowPrefab = null; // 矢の原本（クローン用）
 
-      // デバッグ用マーカー（弦の掴み位置）
-      const markerGeo = new THREE.SphereGeometry(0.08, 16, 16);
-      const markerMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.6, wireframe: true });
+      // デバッグ用マーカー: 中心点（小球）
+      const markerGeo = new THREE.SphereGeometry(0.05, 16, 16);
+      const markerMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.9 });
       this.nockMarker = new THREE.Mesh(markerGeo, markerMat);
       this.nockMarker.visible = false;
+
+      // デバッグ用マーカー: 掴み判定範囲（大きいワイヤーフレーム球 = 0.5m半径）
+      const rangeGeo = new THREE.SphereGeometry(0.5, 16, 16);
+      const rangeMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.15, wireframe: true });
+      this.nockRangeMarker = new THREE.Mesh(rangeGeo, rangeMat);
+      this.nockRangeMarker.visible = false;
+
       this.el.sceneEl.object3D.add(this.nockMarker);
+      this.el.sceneEl.object3D.add(this.nockRangeMarker);
 
       // 当たり判定有効化（3秒後）
       setTimeout(() => {
@@ -141,10 +149,14 @@ export function registerSwordComponent() {
       });
     },
 
-    // 弦に近いか判定
-    // DEBUG: 距離判定を無効化してグリップ押下で常に掴めるようにする
+    // 弦に近いか判定（ワールド座標で比較）
     isNearString: function (): boolean {
-      return true;
+      if (!this.otherHand || !this.nockMarker) return false;
+      const handPos = this.otherHand.object3D.getWorldPosition(new THREE.Vector3());
+      const markerPos = this.nockMarker.position; // nockMarkerはシーンルートに直接addされているのでpositionがワールド座標
+      const dist = handPos.distanceTo(markerPos);
+      console.log(`[bow] isNearString dist=${dist.toFixed(3)}`);
+      return dist < 0.5;
     },
 
     setMode: function (mode: string) {
@@ -164,6 +176,7 @@ export function registerSwordComponent() {
         }
 
         if (this.nockMarker) this.nockMarker.visible = true;
+        if (this.nockRangeMarker) this.nockRangeMarker.visible = true;
 
       } else {
         if (this.upperBlade && this.upperBlade.morphTargetInfluences) {
@@ -177,6 +190,7 @@ export function registerSwordComponent() {
         this.isDrawn = false;
 
         if (this.nockMarker) this.nockMarker.visible = false;
+        if (this.nockRangeMarker) this.nockRangeMarker.visible = false;
       }
     },
 
@@ -196,17 +210,8 @@ export function registerSwordComponent() {
     shoot: function () {
       if (this.mode !== 'bow' || !this.isDrawn) return;
 
-      // 最低限引いてないと撃てない（誤射防止）
-      if (this.drawProgress < 0.2) {
-        // キャンセル扱い
-        console.log('[sword/bow] Draw too weak, cancelling shot.');
-        this.isGrabbingString = false;
-        this.isDrawn = false;
-        this.updateMorphs(0);
-        if (this.arrow) this.arrow.visible = false;
-        return;
-      }
-
+      // DEBUG: drawProgressのガードを撤廃（0でも発射する）
+      // if (this.drawProgress < 0.2) { ... }
       console.log(`[sword/bow] Shooting! Draw progress: ${this.drawProgress.toFixed(2)}`);
 
       // 矢の発射（モデルクローン）
@@ -289,41 +294,28 @@ export function registerSwordComponent() {
 
       // マーカー位置更新（弓モード時）
       if (this.mode === 'bow' && this.nockMarker) {
-        // 弓の弦の位置 = グリップから前方に少しオフセット
         const offset = new THREE.Vector3(0, 0, 0.2);
         offset.applyQuaternion(this.el.object3D.getWorldQuaternion(new THREE.Quaternion()));
         const worldPos = this.el.object3D.getWorldPosition(new THREE.Vector3()).add(offset);
         this.nockMarker.position.copy(worldPos);
+        if (this.nockRangeMarker) this.nockRangeMarker.position.copy(worldPos);
 
-        // 色制御: 掴んでいれば赤、近ければ黄色、それ以外は緑
-        if (this.isGrabbingString) {
-          this.nockMarker.material.color.setHex(0xff0000);
-        } else if (this.isNearString()) {
-          this.nockMarker.material.color.setHex(0xffff00);
-        } else {
-          this.nockMarker.material.color.setHex(0x00ff00);
-        }
+        // 色制御: 掴んでいれば赤、範囲内なら黄色、それ以外は緑
+        const color = this.isGrabbingString ? 0xff0000 : this.isNearString() ? 0xffff00 : 0x00ff00;
+        this.nockMarker.material.color.setHex(color);
+        if (this.nockRangeMarker) this.nockRangeMarker.material.color.setHex(color);
       }
 
       // 両手操作ロジック: 弦を引いている間のドロー処理
       if (this.mode === 'bow' && this.isGrabbingString && this.otherHand) {
         const handPos = this.otherHand.object3D.getWorldPosition(new THREE.Vector3());
-        const nockPos = new THREE.Vector3();
-        this.nockMarker.getWorldPosition(nockPos);
+        const nockPos = this.nockMarker.position; // シーンルートに直接addされているのでワールド座標
 
-        // バグ修正: 単純距離 → Valve方式（弓の後方向成分のみで引き量を計算）
-        // 弓の「後方向」= Z+方向をワールド座標に変換
-        const bowBackDir = new THREE.Vector3(0, 0, 1);
-        bowBackDir.applyQuaternion(this.el.object3D.getWorldQuaternion(new THREE.Quaternion()));
-
-        // nockから手へのベクトル
-        const nockToHand = new THREE.Vector3().subVectors(handPos, nockPos);
-
-        // 後方成分のみ（前に出しても引き量が増えないようにする）
-        const pullDist = nockToHand.dot(bowBackDir);
-
-        // 0.05mから引き始め、0.5mで最大(1.0) ← Valve の minPull/maxPull に相当
-        this.drawProgress = Math.min(Math.max((pullDist - 0.05) / 0.45, 0), 1);
+        // シンプルな距離ベースで引き量を計算（まず動かすことを優先）
+        const dist = handPos.distanceTo(nockPos);
+        // 0.0mから引き始め、0.5mで最大(1.0)
+        this.drawProgress = Math.min(Math.max(dist / 0.5, 0), 1);
+        console.log(`[bow] drawProgress=${this.drawProgress.toFixed(2)} dist=${dist.toFixed(3)}`);
 
         this.updateMorphs(this.drawProgress);
 
