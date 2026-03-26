@@ -43,20 +43,13 @@ export function registerSwordComponent() {
       this.arrow = null;
       this.arrowPrefab = null; // 矢の原本（クローン用）
 
-      // デバッグ用マーカー: 中心点（小球）
-      const markerGeo = new THREE.SphereGeometry(0.05, 16, 16);
-      const markerMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.9 });
-      this.nockMarker = new THREE.Mesh(markerGeo, markerMat);
-      this.nockMarker.visible = false;
-
-      // デバッグ用マーカー: 掴み判定範囲（大きいワイヤーフレーム球 = 0.5m半径）
-      const rangeGeo = new THREE.SphereGeometry(0.5, 16, 16);
-      const rangeMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.15, wireframe: true });
-      this.nockRangeMarker = new THREE.Mesh(rangeGeo, rangeMat);
-      this.nockRangeMarker.visible = false;
-
-      this.el.sceneEl.object3D.add(this.nockMarker);
-      this.el.sceneEl.object3D.add(this.nockRangeMarker);
+      // デバッグ用: 弦を中心とした円柱（掴み判定範囲の可視化）
+      // 半径0.3m・高さ0.8m のワイヤーフレーム円柱
+      const cylinderGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16, 1, true);
+      const cylinderMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.25, wireframe: true, side: THREE.DoubleSide });
+      this.nockCylinder = new THREE.Mesh(cylinderGeo, cylinderMat);
+      this.nockCylinder.visible = false;
+      this.el.sceneEl.object3D.add(this.nockCylinder);
 
       // 当たり判定有効化（3秒後）
       setTimeout(() => {
@@ -149,14 +142,27 @@ export function registerSwordComponent() {
       });
     },
 
-    // 弦に近いか判定（ワールド座標で比較）
+    // 弦のワールド座標を取得（stringメッシュがあればそこ、なければ弓エンティティ前方）
+    _getNockWorldPos: function () {
+      if (this.string) {
+        const pos = new THREE.Vector3();
+        this.string.getWorldPosition(pos);
+        return pos;
+      }
+      // フォールバック: 弓エンティティ前方0.2m
+      const offset = new THREE.Vector3(0, 0, 0.2);
+      offset.applyQuaternion(this.el.object3D.getWorldQuaternion(new THREE.Quaternion()));
+      return this.el.object3D.getWorldPosition(new THREE.Vector3()).add(offset);
+    },
+
+    // 弦に近いか判定（弦のワールド座標と左手の距離）
     isNearString: function (): boolean {
-      if (!this.otherHand || !this.nockMarker) return false;
+      if (!this.otherHand) return false;
       const handPos = this.otherHand.object3D.getWorldPosition(new THREE.Vector3());
-      const markerPos = this.nockMarker.position; // nockMarkerはシーンルートに直接addされているのでpositionがワールド座標
-      const dist = handPos.distanceTo(markerPos);
+      const nockPos = this._getNockWorldPos();
+      const dist = handPos.distanceTo(nockPos);
       console.log(`[bow] isNearString dist=${dist.toFixed(3)}`);
-      return dist < 0.5;
+      return dist < 0.3; // 円柱半径と合わせて0.3m
     },
 
     setMode: function (mode: string) {
@@ -175,8 +181,7 @@ export function registerSwordComponent() {
           if (this.arrow.material) this.arrow.material.opacity = 0;
         }
 
-        if (this.nockMarker) this.nockMarker.visible = true;
-        if (this.nockRangeMarker) this.nockRangeMarker.visible = true;
+        if (this.nockCylinder) this.nockCylinder.visible = true;
 
       } else {
         if (this.upperBlade && this.upperBlade.morphTargetInfluences) {
@@ -189,8 +194,7 @@ export function registerSwordComponent() {
         this.isGrabbingString = false;
         this.isDrawn = false;
 
-        if (this.nockMarker) this.nockMarker.visible = false;
-        if (this.nockRangeMarker) this.nockRangeMarker.visible = false;
+        if (this.nockCylinder) this.nockCylinder.visible = false;
       }
     },
 
@@ -292,24 +296,23 @@ export function registerSwordComponent() {
         return;
       }
 
-      // マーカー位置更新（弓モード時）
-      if (this.mode === 'bow' && this.nockMarker) {
-        const offset = new THREE.Vector3(0, 0, 0.2);
-        offset.applyQuaternion(this.el.object3D.getWorldQuaternion(new THREE.Quaternion()));
-        const worldPos = this.el.object3D.getWorldPosition(new THREE.Vector3()).add(offset);
-        this.nockMarker.position.copy(worldPos);
-        if (this.nockRangeMarker) this.nockRangeMarker.position.copy(worldPos);
+      // 円柱の位置・回転・色を弦に追従させる
+      if (this.mode === 'bow' && this.nockCylinder) {
+        const nockPos = this._getNockWorldPos();
+        this.nockCylinder.position.copy(nockPos);
 
-        // 色制御: 掴んでいれば赤、範囲内なら黄色、それ以外は緑
+        // 弓の向きに合わせて円柱を回転（弦は弓に対して横軸）
+        this.nockCylinder.quaternion.copy(this.el.object3D.getWorldQuaternion(new THREE.Quaternion()));
+
+        // 色制御: 掴み中=赤 / 範囲内=黄 / 待機=緑
         const color = this.isGrabbingString ? 0xff0000 : this.isNearString() ? 0xffff00 : 0x00ff00;
-        this.nockMarker.material.color.setHex(color);
-        if (this.nockRangeMarker) this.nockRangeMarker.material.color.setHex(color);
+        this.nockCylinder.material.color.setHex(color);
       }
 
       // 両手操作ロジック: 弦を引いている間のドロー処理
       if (this.mode === 'bow' && this.isGrabbingString && this.otherHand) {
         const handPos = this.otherHand.object3D.getWorldPosition(new THREE.Vector3());
-        const nockPos = this.nockMarker.position; // シーンルートに直接addされているのでワールド座標
+        const nockPos = this._getNockWorldPos();
 
         // シンプルな距離ベースで引き量を計算（まず動かすことを優先）
         const dist = handPos.distanceTo(nockPos);
