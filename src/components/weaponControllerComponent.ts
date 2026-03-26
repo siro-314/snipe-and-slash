@@ -52,14 +52,21 @@ export function registerWeaponControllerComponent() {
       this.weaponEntity.setAttribute('position', '0 0 -0.1');
       this.el.appendChild(this.weaponEntity);
 
-      if (this.weaponEntity.components.sword) {
-        this.weaponEntity.components.sword.setOtherHand(this.otherHand);
+      // sword コンポーネントは appendChild 直後は未初期化の場合があるため
+      // loaded イベントまで待ってから setOtherHand を呼ぶ
+      const assignOtherHand = () => {
+        if (this.weaponEntity.components.sword) {
+          this.weaponEntity.components.sword.setOtherHand(this.otherHand);
+          console.log(`[weapon-controller] setOtherHand called with`, this.otherHand?.id);
+        } else {
+          console.warn('[weapon-controller] sword component not found after loaded');
+        }
+      };
+
+      if (this.weaponEntity.hasLoaded) {
+        assignOtherHand();
       } else {
-        this.weaponEntity.addEventListener('componentinitialized', (evt: any) => {
-          if (evt.detail.name === 'sword') {
-            this.weaponEntity.components.sword.setOtherHand(this.otherHand);
-          }
-        });
+        this.weaponEntity.addEventListener('loaded', assignOtherHand, { once: true });
       }
 
       this.weaponSpawned = true;

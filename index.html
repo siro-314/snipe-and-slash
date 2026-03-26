@@ -99,9 +99,9 @@
         <a-entity cursor="fuse: false; rayOrigin: mouse" raycaster="objects: [data-raycastable]"></a-entity>
       </a-entity>
 
-      <!-- 左手コントローラー -->
+      <!-- 左手コントローラー（weapon-controllerなし: 右手のotherHandとして参照されるだけ） -->
       <a-entity id="leftHand" oculus-touch-controls="hand: left" vive-controls="hand: left"
-        windows-motion-controls="hand: left" weapon-controller="hand: left"
+        windows-motion-controls="hand: left"
         raycaster="objects: [data-raycastable]; far: 3">
       </a-entity>
 
