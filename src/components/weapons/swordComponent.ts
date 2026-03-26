@@ -142,14 +142,9 @@ export function registerSwordComponent() {
     },
 
     // 弦に近いか判定
-    // バグ修正: nockMarker.position（ローカル座標）→ getWorldPosition()（ワールド座標）に統一
+    // DEBUG: 距離判定を無効化してグリップ押下で常に掴めるようにする
     isNearString: function (): boolean {
-      if (!this.otherHand || !this.nockMarker) return false;
-      const handPos = this.otherHand.object3D.getWorldPosition(new THREE.Vector3());
-      const markerPos = new THREE.Vector3();
-      this.nockMarker.getWorldPosition(markerPos); // ワールド座標で取得
-      const dist = handPos.distanceTo(markerPos);
-      return dist < 0.5; // 50cm以内なら弦を掴める
+      return true;
     },
 
     setMode: function (mode: string) {
