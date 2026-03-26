@@ -142,12 +142,14 @@ export function registerSwordComponent() {
     },
 
     // 弦に近いか判定
+    // バグ修正: nockMarker.position（ローカル座標）→ getWorldPosition()（ワールド座標）に統一
     isNearString: function (): boolean {
       if (!this.otherHand || !this.nockMarker) return false;
       const handPos = this.otherHand.object3D.getWorldPosition(new THREE.Vector3());
-      const markerPos = this.nockMarker.position;
+      const markerPos = new THREE.Vector3();
+      this.nockMarker.getWorldPosition(markerPos); // ワールド座標で取得
       const dist = handPos.distanceTo(markerPos);
-      return dist < 0.5; // 50cm以内なら弦を掴める（VRではある程度余裕を持たせる）
+      return dist < 0.5; // 50cm以内なら弦を掴める
     },
 
     setMode: function (mode: string) {
@@ -311,11 +313,22 @@ export function registerSwordComponent() {
       // 両手操作ロジック: 弦を引いている間のドロー処理
       if (this.mode === 'bow' && this.isGrabbingString && this.otherHand) {
         const handPos = this.otherHand.object3D.getWorldPosition(new THREE.Vector3());
-        const bowPos = this.el.object3D.getWorldPosition(new THREE.Vector3());
-        const dist = handPos.distanceTo(bowPos);
+        const nockPos = new THREE.Vector3();
+        this.nockMarker.getWorldPosition(nockPos);
 
-        // 0.1mから引き始め、0.6mで最大(1.0)
-        this.drawProgress = Math.min(Math.max((dist - 0.1) / 0.5, 0), 1);
+        // バグ修正: 単純距離 → Valve方式（弓の後方向成分のみで引き量を計算）
+        // 弓の「後方向」= Z+方向をワールド座標に変換
+        const bowBackDir = new THREE.Vector3(0, 0, 1);
+        bowBackDir.applyQuaternion(this.el.object3D.getWorldQuaternion(new THREE.Quaternion()));
+
+        // nockから手へのベクトル
+        const nockToHand = new THREE.Vector3().subVectors(handPos, nockPos);
+
+        // 後方成分のみ（前に出しても引き量が増えないようにする）
+        const pullDist = nockToHand.dot(bowBackDir);
+
+        // 0.05mから引き始め、0.5mで最大(1.0) ← Valve の minPull/maxPull に相当
+        this.drawProgress = Math.min(Math.max((pullDist - 0.05) / 0.45, 0), 1);
 
         this.updateMorphs(this.drawProgress);
 
