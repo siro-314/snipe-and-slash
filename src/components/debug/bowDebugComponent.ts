@@ -1,13 +1,10 @@
 /**
- * 弓デバッグコンポーネント
- * VR空間内にリアルタイムで弓の状態を表示する
+ * 弓デバッグパネル - ABCD全バグ原因チェック
  *
- * 表示情報:
- *   - mode: sword / bow
- *   - isGrabbingString: 弦を掴んでいるか
- *   - drawProgress: 引き量 (0.0 ~ 1.0)
- *   - grip押下/離しカウント
- *   - shoot発射カウント
+ * A: otherHand が null かどうか
+ * B: string メッシュが取れているか（弦の位置）
+ * C: weapon-controller の hand 設定（左右逆転チェック）
+ * D: gripdown イベントが届いているか
  */
 export function registerBowDebugComponent() {
   AFRAME.registerComponent('bow-debug', {
@@ -19,31 +16,30 @@ export function registerBowDebugComponent() {
       this.gripDownCount = 0;
       this.gripUpCount = 0;
       this._shootPatched = false;
+      this._gripListened = false;
 
       this._createPanel();
-      this._listenGrip();
     },
 
-    // カメラ前方にデバッグパネルを生成
     _createPanel: function () {
       const panel = document.createElement('a-entity');
-      panel.setAttribute('position', '0 1.6 -0.7');
+      panel.setAttribute('position', '0 0.1 -0.7');
 
       const bg = document.createElement('a-plane');
-      bg.setAttribute('width', '0.55');
-      bg.setAttribute('height', '0.32');
+      bg.setAttribute('width', '0.65');
+      bg.setAttribute('height', '0.52');
       bg.setAttribute('color', '#111111');
-      bg.setAttribute('opacity', '0.85');
+      bg.setAttribute('opacity', '0.88');
       panel.appendChild(bg);
 
       const text = document.createElement('a-text');
       text.setAttribute('value', 'BOW DEBUG\nLoading...');
       text.setAttribute('color', '#00ff88');
-      text.setAttribute('width', '0.5');
-      text.setAttribute('position', '-0.25 0.12 0.01');
+      text.setAttribute('width', '0.6');
+      text.setAttribute('position', '-0.30 0.22 0.01');
       text.setAttribute('anchor', 'left');
       text.setAttribute('baseline', 'top');
-      text.setAttribute('wrap-count', '28');
+      text.setAttribute('wrap-count', '32');
       panel.appendChild(text);
 
       this.textEl = text;
@@ -52,56 +48,79 @@ export function registerBowDebugComponent() {
     },
 
 
-    // leftHandのgripイベントを直接カウント
+    // gripイベントを左右両手ともリッスン
     _listenGrip: function () {
-      const left = document.getElementById('leftHand');
-      if (left) {
-        left.addEventListener('gripdown', () => { this.gripDownCount++; });
-        left.addEventListener('gripup',   () => { this.gripUpCount++;   });
-      }
-    },
-
-    // swordのshoot()をパッチしてカウント
-    _patchShoot: function (sword: any) {
-      if (this._shootPatched) return;
-      const orig = sword.shoot.bind(sword);
-      sword.shoot = () => {
-        this.shootCount++;
-        orig();
-      };
-      this._shootPatched = true;
+      ['leftHand', 'rightHand'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.addEventListener('gripdown', () => {
+            this.gripDownCount++;
+            this._gripLog = `last:${id} dn#${this.gripDownCount}`;
+          });
+          el.addEventListener('gripup', () => {
+            this.gripUpCount++;
+            this._gripLog = `last:${id} up#${this.gripUpCount}`;
+          });
+        }
+      });
+      this._gripListened = true;
     },
 
     tick: function () {
+      // gripリスナーは遅延登録（DOM確定後）
+      if (!this._gripListened) this._listenGrip();
+
       const swordEl = document.querySelector('[sword]') as any;
-      if (!swordEl) {
-        this._setText('BOW DEBUG\nNo [sword] entity');
-        return;
-      }
-      const sword = swordEl.components?.sword;
-      if (!sword) {
-        this._setText('BOW DEBUG\nNo sword component');
-        return;
+      const sword = swordEl?.components?.sword;
+
+      // --- A: otherHand チェック ---
+      const otherHandRef  = sword?.otherHand;
+      const aStatus = otherHandRef
+        ? `OK(${otherHandRef.id ?? '?'})`
+        : 'NULL ← バグA';
+
+      // --- B: string メッシュチェック ---
+      const stringMesh = sword?.string;
+      let bStatus = 'NULL ← バグB';
+      let bPos = '';
+      if (stringMesh) {
+        const p = new THREE.Vector3();
+        stringMesh.getWorldPosition(p);
+        bPos = `${p.x.toFixed(2)},${p.y.toFixed(2)},${p.z.toFixed(2)}`;
+        bStatus = `OK pos=${bPos}`;
       }
 
-      this._patchShoot(sword);
+      // --- C: hand 設定チェック（weapon-controllerのhand属性） ---
+      const wcEl = document.querySelector('[weapon-controller]') as any;
+      const wcHand = wcEl?.getAttribute('weapon-controller')?.hand ?? '?';
+      // swordのhandと比較
+      const swordHand = swordEl?.getAttribute('sword')?.hand ?? '?';
+      const cStatus = `wc=${wcHand} sword=${swordHand}`;
 
-      const mode      = sword.mode          ?? '?';
-      const grabbing  = sword.isGrabbingString ? 'YES' : 'no';
-      const draw      = typeof sword.drawProgress === 'number'
-                          ? sword.drawProgress.toFixed(2) : '?';
-      const drawn     = sword.isDrawn    ? 'YES' : 'no';
-      const ready     = sword.isReady    ? 'YES' : 'no';
-      const model     = sword.modelLoaded ? 'YES' : 'no';
+      // --- D: gripdownイベント到達チェック ---
+      const dStatus = this._gripLog ?? 'no grip yet';
+
+      // --- shoot パッチ ---
+      if (!this._shootPatched && sword?.shoot) {
+        const orig = sword.shoot.bind(sword);
+        sword.shoot = () => { this.shootCount++; orig(); };
+        this._shootPatched = true;
+      }
+
+      const mode    = sword?.mode ?? '?';
+      const grab    = sword?.isGrabbingString ? 'YES' : 'no';
+      const draw    = typeof sword?.drawProgress === 'number'
+                        ? sword.drawProgress.toFixed(2) : '?';
+      const isNear  = sword?.isNearString?.() ? 'YES' : 'no';
 
       const log = [
         '=== BOW DEBUG ===',
-        `mode:     ${mode}`,
-        `model:    ${model}   ready: ${ready}`,
-        `grip-dn:  ${this.gripDownCount}  up: ${this.gripUpCount}`,
-        `grabStr:  ${grabbing}  drawn: ${drawn}`,
-        `draw%:    ${draw}`,
-        `shoots:   ${this.shootCount}`,
+        `mode:${mode} grab:${grab} draw:${draw}`,
+        `near:${isNear} shoots:${this.shootCount}`,
+        `[A]otherHand: ${aStatus}`,
+        `[B]string: ${bStatus}`,
+        `[C]hands: ${cStatus}`,
+        `[D]grip: ${dStatus}`,
       ].join('\n');
 
       if (log !== this.lastLog) {
