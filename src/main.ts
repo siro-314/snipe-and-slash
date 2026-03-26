@@ -40,6 +40,9 @@ import {
   registerWeaponControllerComponent
 } from './components';
 
+// デバッグコンポーネント
+import { registerBowDebugComponent } from './components/debug/bowDebugComponent';
+
 // ========================================
 // ユーティリティ関数
 // ========================================
@@ -100,6 +103,9 @@ registerEnemyDroneBlackComponent(updateHUD, checkGameClear);
 
 // コントローラーコンポーネント
 registerWeaponControllerComponent();
+
+// デバッグコンポーネント（弓の状態可視化）
+registerBowDebugComponent();
 
 // ========================================
 // 初期化: ModelManager初期化 → 敵配置はSTARTボタン後
