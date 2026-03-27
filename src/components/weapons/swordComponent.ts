@@ -36,6 +36,9 @@ export function registerSwordComponent() {
       this.isGrabbingString = false;
       this.otherHandGripping = false;
 
+      // weapon-controller が検知する射出後復帰フラグ
+      this._returnToSwordRequested = false;
+
       // メッシュ参照
       this.upperBlade = null;
       this.lowerBlade = null;
@@ -203,6 +206,19 @@ export function registerSwordComponent() {
 
     shoot: function () {
       if (this.mode !== 'bow' || !this.isDrawn) return;
+
+      // 引き量が0.3未満はキャンセル（最低限引かないと飛ばない）
+      if (this.drawProgress < 0.3) {
+        console.log(`[bow] Draw too weak (${this.drawProgress.toFixed(2)}), cancelled`);
+        this.isGrabbingString = false;
+        this.isDrawn = false;
+        this.drawProgress = 0;
+        this.updateMorphs(0);
+        if (this.arrow) this.arrow.visible = false;
+        this._returnToSwordRequested = true;
+        return;
+      }
+
       console.log(`[bow] Shoot! drawProgress=${this.drawProgress.toFixed(2)}`);
 
       // 矢エンティティ生成
@@ -216,40 +232,71 @@ export function registerSwordComponent() {
         }
         if (arrowMesh.morphTargetInfluences) arrowMesh.morphTargetInfluences[0] = 0;
       } else {
+        // フォールバック: 細長いカプセルで矢を表現
         arrowMesh = new THREE.Mesh(
-          new THREE.SphereGeometry(0.05),
-          new THREE.MeshBasicMaterial({ color: '#00d4ff' })
+          new THREE.CylinderGeometry(0.015, 0.015, 0.6, 8),
+          new THREE.MeshBasicMaterial({ color: '#c8a04a' })
         );
+        // CylinderはY軸方向なのでZ軸に向ける
+        arrowMesh.rotation.x = Math.PI / 2;
       }
 
       const arrowEntity = document.createElement('a-entity');
       arrowEntity.setObject3D('mesh', arrowMesh);
 
+      // 発射位置: 弓エンティティのワールド座標
       const pos = this.el.object3D.getWorldPosition(new THREE.Vector3());
+
+      // 発射方向: カメラの向いている方向（-Z）を使う
+      // 弓モデルの回転補正に依存しないため、カメラ基準が最も直感的
+      const camera = document.querySelector('[camera]') as any;
       const dir = new THREE.Vector3(0, 0, -1);
-      dir.applyQuaternion(this.el.object3D.getWorldQuaternion(new THREE.Quaternion()));
+      if (camera) {
+        dir.applyQuaternion(camera.object3D.getWorldQuaternion(new THREE.Quaternion()));
+      } else {
+        dir.applyQuaternion(this.el.object3D.getWorldQuaternion(new THREE.Quaternion()));
+      }
 
       if (this.arrow) {
         const worldScale = new THREE.Vector3();
         this.arrow.getWorldScale(worldScale);
-        arrowEntity.object3D.scale.copy(worldScale);
+        // モデルの矢は細い可能性があるのでスケールをやや拡大
+        arrowEntity.object3D.scale.set(
+          worldScale.x * 2.5,
+          worldScale.y * 2.5,
+          worldScale.z * 2.5
+        );
       }
 
       arrowEntity.setAttribute('position', pos);
-      const speed = 10 + this.drawProgress * 15;
-      arrowEntity.setAttribute('projectile', `direction: ${dir.x} ${dir.y} ${dir.z}; speed: ${speed}`);
+
+      // 引き量による威力カーブ
+      // 0.3未満: 上でキャンセル済み
+      // 0.3〜0.5: 非常に弱い（10〜12 m/s）、重力大きめ → ほぼ山なり
+      // 0.5〜0.7: 弱い（12〜18 m/s）、放物線
+      // 0.7〜1.0: 実用的（18〜28 m/s）、ほぼ直線
+      const p = this.drawProgress;
+      // 速度: drawProgressの2乗カーブで急上昇
+      const speed = 8 + Math.pow(p, 2) * 20; // 0.3→8.8, 0.5→13, 0.7→17.8, 1.0→28
+      // 重力: 弱いほど重力が大きい（山なりになる）
+      const gravity = Math.max(0, (1 - p) * 12); // 0.3→8.4, 0.5→6, 0.7→3.6, 1.0→0
+
+      arrowEntity.setAttribute('projectile',
+        `direction: ${dir.x} ${dir.y} ${dir.z}; speed: ${speed}; gravity: ${gravity}`
+      );
       arrowEntity.setAttribute('player-arrow', '');
       (document.querySelector('a-scene') as any).appendChild(arrowEntity);
 
       if ((this.el as any).components?.haptics) (this.el as any).components.haptics.pulse(1.0, 50);
 
-      // リセット → 弓モードのまま連射待機
+      // リセット
       this.isGrabbingString = false;
       this.isDrawn = false;
       this.drawProgress = 0;
       this.updateMorphs(0);
       if (this.arrow) this.arrow.visible = false;
-      // ※ _returnToSwordRequested は廃止（弓モード維持）
+      // 発射後は weapon-controller に剣へ戻すよう通知
+      this._returnToSwordRequested = true;
     },
 
     updateMorphs: function (value: number) {

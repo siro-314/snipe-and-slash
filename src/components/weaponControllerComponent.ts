@@ -78,7 +78,7 @@ export function registerWeaponControllerComponent() {
       }
     },
 
-    // トリガー: 剣→弓（弓モード中はトグルなし、そのまま維持）
+    // トリガー押下: 剣→弓
     onTriggerDown: function (_evt: any) {
       if (this.currentMode === 'sword') {
         this.equipWeapon('bow');
@@ -86,9 +86,15 @@ export function registerWeaponControllerComponent() {
       // 弓モード中のトリガーは何もしない（弦操作はグリップ）
     },
 
+    // トリガー離し: 弓→剣（弦を引いている最中は離さない）
     onTriggerUp: function (_evt: any) {
-      // トリガーを離しても弓モードを維持（連射のため）
-      // 剣に戻したい場合は将来的に別ボタンで実装
+      if (this.currentMode === 'bow') {
+        const swordComp = this.weaponEntity?.components?.sword;
+        // 弦を掴んで引いている最中はトリガー離しを無視
+        // → グリップを離して発射した後に剣に戻る
+        if (swordComp && (swordComp.isGrabbingString || swordComp.isDrawn)) return;
+        this.equipWeapon('sword');
+      }
     },
 
     tick: function (_time: number, delta: number) {
@@ -97,6 +103,15 @@ export function registerWeaponControllerComponent() {
         this.updateSwordSwingSpeed(delta);
         if (this.swordSwingSpeed > 1.5) {
           this.checkSwordHit();
+        }
+      }
+
+      // 発射後フラグ検知: 剣に戻す
+      if (this.currentMode === 'bow' && this.weaponEntity) {
+        const swordComp = this.weaponEntity.components?.sword;
+        if (swordComp?._returnToSwordRequested) {
+          swordComp._returnToSwordRequested = false;
+          this.equipWeapon('sword');
         }
       }
     },
