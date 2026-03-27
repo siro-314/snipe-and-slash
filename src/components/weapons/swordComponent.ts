@@ -83,7 +83,7 @@ export function registerSwordComponent() {
       }
 
       model.scale.set(1, 1, 1);
-      model.rotation.set(Math.PI / 2, Math.PI / 2, Math.PI);
+      model.rotation.set(-Math.PI / 2, Math.PI / 2, Math.PI);
 
       model.traverse((node: any) => {
         if (node.isMesh) {
