@@ -54,4 +54,5 @@ cd ~/Desktop/snipe-and-slash && git log --oneline -5 && npm run dev
 
 **本番URL**: https://playful-concha-6af59f.netlify.app
 **GitHub**: https://github.com/siro-314/snipe-and-slash
-**最終更新**: 2026-03-27 コミット 0a5d51d
+**最終更新**: 2026-03-27 コミット 0061e09
+**次のタスク**: Quest 2でCALIBボタン（前方2m白いブロック）を手で触れてトグル確認・PITCH/YAW 90度調整で矢の向きを合わせてPITCH/YAW値を教えてもらい定数化

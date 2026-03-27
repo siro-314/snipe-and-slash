@@ -58,10 +58,8 @@ export function registerSwordComponent() {
       this.nockSphere.visible = false;
       this.el.sceneEl.object3D.add(this.nockSphere);
 
-      // 位置調整モード
+      // 位置調整モード（球の表示制御のみ、移動はbowDebugComponentが担当）
       this.calibrationMode = false;
-      this.calibGrabbing = false;
-      this.calibGrabOffset = new THREE.Vector3();
 
       // 発射方向補正: 弓のローカル-Z軸からのオフセット回転（ラジアン）
       // CALIBモードで調整可能。(0,0)=補正なし
@@ -148,19 +146,8 @@ export function registerSwordComponent() {
 
       el.addEventListener('gripdown', () => {
         this.otherHandGripping = true;
-
-        // 位置調整モード: 球をつかむ
-        if (this.calibrationMode) {
-          const handPos = this.otherHand.object3D.getWorldPosition(new THREE.Vector3());
-          const nockPos = this._getNockWorldPos();
-          if (handPos.distanceTo(nockPos) < 0.3) {
-            this.calibGrabbing = true;
-            this.calibGrabOffset.subVectors(nockPos, handPos);
-          }
-          return;
-        }
-
-        // 通常モード: 弓モードで弦を掴む
+        // CALIBモード中は弦掴みを無効化（bowDebugComponentが参照弓を制御する）
+        if (this.calibrationMode) return;
         if (this.mode === 'bow' && this.isNearString()) {
           this.startDraw();
         }
@@ -168,14 +155,7 @@ export function registerSwordComponent() {
 
       el.addEventListener('gripup', () => {
         this.otherHandGripping = false;
-
-        // 位置調整モード: 球を離す
-        if (this.calibrationMode) {
-          this.calibGrabbing = false;
-          return;
-        }
-
-        // 通常モード: 発射
+        if (this.calibrationMode) return;
         if (this.isGrabbingString) {
           this.shoot();
         }
@@ -320,7 +300,6 @@ export function registerSwordComponent() {
     // 位置調整モードの切替（bow-debugから呼ばれる）
     setCalibrationMode: function (enabled: boolean) {
       this.calibrationMode = enabled;
-      this.calibGrabbing = false;
       if (this.nockSphere) {
         this.nockSphere.visible = enabled || this.mode === 'bow';
         (this.nockSphere.material as any).opacity = enabled ? 0.7 : 0.35;
@@ -347,26 +326,11 @@ export function registerSwordComponent() {
         return;
       }
 
-      // 位置調整モード: グリップで球を動かす
-      if (this.calibrationMode && this.calibGrabbing && this.otherHand) {
-        const handPos = this.otherHand.object3D.getWorldPosition(new THREE.Vector3());
-        // 新しい握り判定中心 = 手の位置 + グラブ時のオフセット
-        const newNockWorld = handPos.clone().add(this.calibGrabOffset);
-        // nockOffset = newNockWorld - 弦の基準座標
-        const base = new THREE.Vector3();
-        if (this.string) {
-          this.string.getWorldPosition(base);
-        } else {
-          this.el.object3D.getWorldPosition(base);
-        }
-        this.nockOffset.subVectors(newNockWorld, base);
-      }
-
       // 球の位置・色を更新（弓モードまたは調整モード中）
       if ((this.mode === 'bow' || this.calibrationMode) && this.nockSphere) {
         this.nockSphere.position.copy(this._getNockWorldPos());
         const near = this.isNearString();
-        const color = this.isGrabbingString || this.calibGrabbing
+        const color = this.isGrabbingString
           ? 0xff0000
           : near ? 0xffff00 : 0x00ff00;
         (this.nockSphere.material as any).color.setHex(color);
