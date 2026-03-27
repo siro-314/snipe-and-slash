@@ -1,8 +1,11 @@
 /**
- * 弓デバッグ＋位置調整パネル
+ * 弓デバッグ＋位置調整パネル（シーン固定・目立つ白ボタン）
  *
- * CALIBRATEボタンは「剣で斬る」か「矢を当てる」で切替
- * レイキャスト不要 - ゲーム中と同じ操作で使える
+ * CALIBボタン: 剣で斬るか矢を当てると ON/OFF トグル
+ * CALIB ON中:
+ *   - 緑の球をグリップで掴んで動かす → 握り判定位置を調整
+ *   - PITCH↑/↓, YAW←/→ ボタンを剣で叩く → 矢の発射方向を補正
+ * ボタンはシーン内の固定位置（プレイヤー正面2m前, 高さ1.5m）に配置
  */
 export function registerBowDebugComponent() {
   AFRAME.registerComponent('bow-debug', {
@@ -11,148 +14,175 @@ export function registerBowDebugComponent() {
       this.textEl = null;
       this.lastLog = '';
       this.calibMode = false;
-      this._btnEl = null;
       this._hitCooldown = 0;
-      this._createPanel();
+
+      // ボタン参照
+      this._btnCalib   = null;
+      this._btnPitchUp = null;
+      this._btnPitchDn = null;
+      this._btnYawL    = null;
+      this._btnYawR    = null;
+
+      this._createUI();
     },
 
-    _createPanel: function () {
+    _createUI: function () {
+      const scene = document.querySelector('a-scene');
+
+      // ===== デバッグテキストパネル (カメラ追従) =====
       const panel = document.createElement('a-entity');
       panel.setAttribute('position', '0 0.05 -0.7');
 
       const bg = document.createElement('a-plane');
       bg.setAttribute('width', '0.72');
-      bg.setAttribute('height', '0.52');
+      bg.setAttribute('height', '0.46');
       bg.setAttribute('color', '#111111');
-      bg.setAttribute('opacity', '0.88');
+      bg.setAttribute('opacity', '0.9');
       panel.appendChild(bg);
 
       const text = document.createElement('a-text');
       text.setAttribute('value', 'BOW DEBUG\nLoading...');
       text.setAttribute('color', '#00ff88');
-      text.setAttribute('width', '0.66');
-      text.setAttribute('position', '-0.34 0.22 0.01');
+      text.setAttribute('width', '0.68');
+      text.setAttribute('position', '-0.34 0.20 0.01');
       text.setAttribute('anchor', 'left');
       text.setAttribute('baseline', 'top');
-      text.setAttribute('wrap-count', '36');
+      text.setAttribute('wrap-count', '38');
       panel.appendChild(text);
       this.textEl = text;
+      // カメラに付ける（index.htmlのcameraエンティティに追加）
+      document.querySelector('[camera]')?.appendChild(panel);
 
-      // ボタン本体（a-box: 剣で斬るか矢を当てると反応する）
-      const btn = document.createElement('a-box');
-      btn.setAttribute('width', '0.34');
-      btn.setAttribute('height', '0.08');
-      btn.setAttribute('depth', '0.04');
-      btn.setAttribute('color', '#004400');
-      btn.setAttribute('position', '0 -0.21 0.01');
-      panel.appendChild(btn);
-      this._btnEl = btn;
+      // ===== 操作ボタン群（シーン内固定・プレイヤー前方2mの壁面） =====
+      // 剣で叩くかゲーム開始前に位置確認しやすいよう、高さ1.4m付近に配置
+      const btnRoot = document.createElement('a-entity');
+      btnRoot.setAttribute('position', '0 1.4 -2');
+      scene?.appendChild(btnRoot);
+      this._btnRoot = btnRoot;
 
-      const btnLabel = document.createElement('a-text');
-      btnLabel.setAttribute('value', '[ CALIB: OFF ]');
-      btnLabel.setAttribute('color', '#aaffaa');
-      btnLabel.setAttribute('width', '0.32');
-      btnLabel.setAttribute('align', 'center');
-      btnLabel.setAttribute('position', '0 -0.21 0.04');
-      panel.appendChild(btnLabel);
-      this._btnLabel = btnLabel;
+      // --- CALIB ON/OFF ボタン（大・白） ---
+      this._btnCalib = this._makeBtn(btnRoot, '[ CALIB: OFF ]', '#ffffff', '#333333', '0 0.25 0', 0.55, 0.14);
 
-      // ヒント
+      // --- PITCH / YAW 調整ボタン（CALIB ON時のみ有効） ---
+      this._btnPitchUp = this._makeBtn(btnRoot, 'PITCH +', '#ffff88', '#333333', '-0.32 -0.05 0', 0.22, 0.10);
+      this._btnPitchDn = this._makeBtn(btnRoot, 'PITCH -', '#ffff88', '#333333', '-0.32 -0.18 0', 0.22, 0.10);
+      this._btnYawL    = this._makeBtn(btnRoot, 'YAW  +', '#88ffff', '#333333', ' 0.32 -0.05 0', 0.22, 0.10);
+      this._btnYawR    = this._makeBtn(btnRoot, 'YAW  -', '#88ffff', '#333333', ' 0.32 -0.18 0', 0.22, 0.10);
+
+      // ヒントラベル
       const hint = document.createElement('a-text');
-      hint.setAttribute('value', 'Slash/shoot btn to toggle');
-      hint.setAttribute('color', '#888888');
-      hint.setAttribute('width', '0.32');
+      hint.setAttribute('value', 'Slash with sword or hit with arrow to toggle CALIB');
+      hint.setAttribute('color', '#aaaaaa');
+      hint.setAttribute('width', '0.9');
       hint.setAttribute('align', 'center');
-      hint.setAttribute('position', '0 -0.255 0.01');
-      panel.appendChild(hint);
-
-      document.querySelector('a-scene')?.appendChild(panel);
-      this.panel = panel;
+      hint.setAttribute('position', '0 0.10 0.01');
+      btnRoot.appendChild(hint);
     },
 
-    // 剣or矢がボタンに当たったか判定（tick内から呼ぶ）
-    _checkButtonHit: function () {
-      if (!this._btnEl || this._hitCooldown > 0) return;
+    _makeBtn: function (parent: any, label: string, textColor: string, bgColor: string, pos: string, w: number, h: number) {
+      const box = document.createElement('a-box');
+      box.setAttribute('width',  String(w));
+      box.setAttribute('height', String(h));
+      box.setAttribute('depth',  '0.06');
+      box.setAttribute('color',  bgColor);
+      box.setAttribute('position', pos);
+      parent.appendChild(box);
 
+      const txt = document.createElement('a-text');
+      txt.setAttribute('value', label);
+      txt.setAttribute('color', textColor);
+      txt.setAttribute('width', String(w * 1.1));
+      txt.setAttribute('align', 'center');
+      // posをパースしてZ+0.04
+      const p = pos.trim().split(/\s+/).map(Number);
+      txt.setAttribute('position', `${p[0]} ${p[1]} ${(p[2] ?? 0) + 0.04}`);
+      parent.appendChild(txt);
+
+      (box as any)._labelEl = txt;
+      return box;
+    },
+
+    _checkHit: function (btnEl: any, radius: number): boolean {
+      if (!btnEl) return false;
       const btnPos = new THREE.Vector3();
-      this._btnEl.object3D.getWorldPosition(btnPos);
-      const hitRadius = 0.12;
+      btnEl.object3D.getWorldPosition(btnPos);
 
-      // 剣の当たり判定
+      // 剣で斬る
       const swordEl = document.querySelector('[sword]') as any;
       if (swordEl) {
-        const swordPos = swordEl.object3D.getWorldPosition(new THREE.Vector3());
-        if (swordPos.distanceTo(btnPos) < hitRadius) {
-          this._triggerToggle();
-          return;
-        }
+        const sp = swordEl.object3D.getWorldPosition(new THREE.Vector3());
+        if (sp.distanceTo(btnPos) < radius) return true;
       }
-
-      // 矢（player-arrow）の当たり判定
-      document.querySelectorAll('[player-arrow]').forEach((arrowEl: any) => {
-        if (this._hitCooldown > 0) return;
-        const arrowPos = arrowEl.object3D.getWorldPosition(new THREE.Vector3());
-        if (arrowPos.distanceTo(btnPos) < hitRadius) {
-          this._triggerToggle();
-        }
+      // 矢を当てる
+      let hit = false;
+      document.querySelectorAll('[player-arrow]').forEach((a: any) => {
+        const ap = a.object3D.getWorldPosition(new THREE.Vector3());
+        if (ap.distanceTo(btnPos) < radius) hit = true;
       });
-    },
-
-    _triggerToggle: function () {
-      this._hitCooldown = 60; // 約1秒間は再トリガーしない
-      this.calibMode = !this.calibMode;
-
-      const sword = this._getSword();
-      if (sword) sword.setCalibrationMode(this.calibMode);
-
-      const onColor  = '#440000';
-      const offColor = '#004400';
-      if (this._btnEl) this._btnEl.setAttribute('color', this.calibMode ? onColor : offColor);
-      if (this._btnLabel) this._btnLabel.setAttribute(
-        'value', this.calibMode ? '[ CALIB: ON  ]' : '[ CALIB: OFF ]'
-      );
-      if (this._btnLabel) this._btnLabel.setAttribute(
-        'color', this.calibMode ? '#ffaaaa' : '#aaffaa'
-      );
-    },
-
-    _getSword: function () {
-      const swordEl = document.querySelector('[sword]') as any;
-      return swordEl?.components?.sword ?? null;
+      return hit;
     },
 
     tick: function () {
-      if (this._hitCooldown > 0) this._hitCooldown--;
-      this._checkButtonHit();
+      if (this._hitCooldown > 0) { this._hitCooldown--; return; }
 
       const sword = this._getSword();
+
+      // CALIBボタン
+      if (this._checkHit(this._btnCalib, 0.2)) {
+        this._hitCooldown = 60;
+        this.calibMode = !this.calibMode;
+        if (sword) sword.setCalibrationMode(this.calibMode);
+        const lbl = this.calibMode ? '[ CALIB: ON  ]' : '[ CALIB: OFF ]';
+        const col = this.calibMode ? '#ff4444' : '#ffffff';
+        if (this._btnCalib) this._btnCalib.setAttribute('color', this.calibMode ? '#441111' : '#333333');
+        if ((this._btnCalib as any)?._labelEl) {
+          (this._btnCalib as any)._labelEl.setAttribute('value', lbl);
+          (this._btnCalib as any)._labelEl.setAttribute('color', col);
+        }
+      }
+
+      // 方向補正ボタン（CALIB ONのみ）
+      const STEP = 0.05; // 約3度
+      if (this.calibMode && sword) {
+        if (this._checkHit(this._btnPitchUp, 0.15)) { this._hitCooldown = 30; sword.adjustShootPitch( STEP); }
+        if (this._checkHit(this._btnPitchDn, 0.15)) { this._hitCooldown = 30; sword.adjustShootPitch(-STEP); }
+        if (this._checkHit(this._btnYawL,    0.15)) { this._hitCooldown = 30; sword.adjustShootYaw(   STEP); }
+        if (this._checkHit(this._btnYawR,    0.15)) { this._hitCooldown = 30; sword.adjustShootYaw(  -STEP); }
+      }
+
+      // テキスト更新
       const mode  = sword?.mode ?? '?';
       const grab  = sword?.isGrabbingString ? 'YES' : 'no';
       const draw  = typeof sword?.drawProgress === 'number' ? sword.drawProgress.toFixed(2) : '?';
       const near  = sword?.isNearString?.() ? 'YES' : 'no';
       const other = sword?.otherHand ? `OK(${sword.otherHand.id})` : 'NULL';
-      const calib = this.calibMode ? 'ON ' : 'OFF';
+      const last  = sword?.lastShootLog ?? '-';
 
-      let offsetLine = '(slash/shoot button to calibrate)';
+      let calibLine = '';
       if (this.calibMode && sword) {
-        const o = sword.getNockOffset();
-        offsetLine = `OFFSET:${o.x.toFixed(3)},${o.y.toFixed(3)},${o.z.toFixed(3)}`;
-        const np = sword._getNockWorldPos?.();
-        if (np) offsetLine += `\nWORLD:${np.x.toFixed(2)},${np.y.toFixed(2)},${np.z.toFixed(2)}`;
+        const o  = sword.getNockOffset();
+        const ag = sword.getShootAngles();
+        calibLine  = `\nOFFSET:${o.x.toFixed(3)},${o.y.toFixed(3)},${o.z.toFixed(3)}`;
+        calibLine += `\nPITCH:${(ag.pitch * 57.3).toFixed(1)}deg YAW:${(ag.yaw * 57.3).toFixed(1)}deg`;
       }
 
       const log = [
         `=== BOW DEBUG ===`,
         `mode:${mode} grab:${grab} draw:${draw}`,
-        `near:${near} otherHand:${other}`,
-        `calib:${calib}`,
-        offsetLine,
+        `near:${near} hand:${other}`,
+        `last: ${last}`,
+        this.calibMode ? `CALIB ON${calibLine}` : `CALIB OFF`,
       ].join('\n');
 
       if (log !== this.lastLog) {
         if (this.textEl) this.textEl.setAttribute('value', log);
         this.lastLog = log;
       }
+    },
+
+    _getSword: function () {
+      const el = document.querySelector('[sword]') as any;
+      return el?.components?.sword ?? null;
     }
   });
 }

@@ -63,6 +63,13 @@ export function registerSwordComponent() {
       this.calibGrabbing = false;
       this.calibGrabOffset = new THREE.Vector3();
 
+      // 発射方向補正: 弓のローカル-Z軸からのオフセット回転（ラジアン）
+      // CALIBモードで調整可能。(0,0)=補正なし
+      this.shootDirPitch = 0; // 上下補正（X軸回転）
+      this.shootDirYaw   = 0; // 左右補正（Y軸回転）
+      // 最後の発射ログ（デバッグパネルに表示）
+      this.lastShootLog = 'no shot yet';
+
       // 当たり判定有効化（3秒後）
       setTimeout(() => { this.isReady = true; }, 3000);
 
@@ -223,6 +230,7 @@ export function registerSwordComponent() {
 
       // 矢エンティティ生成
       let arrowMesh: any;
+      const usedFallback = !this.arrowPrefab;
       if (this.arrowPrefab) {
         arrowMesh = this.arrowPrefab.clone();
         if (arrowMesh.material) {
@@ -237,9 +245,9 @@ export function registerSwordComponent() {
           new THREE.CylinderGeometry(0.015, 0.015, 0.6, 8),
           new THREE.MeshBasicMaterial({ color: '#c8a04a' })
         );
-        // CylinderはY軸方向なのでZ軸に向ける
         arrowMesh.rotation.x = Math.PI / 2;
       }
+      this.lastShootLog = `draw:${this.drawProgress.toFixed(2)} fallback:${usedFallback}`;
 
       const arrowEntity = document.createElement('a-entity');
       arrowEntity.setObject3D('mesh', arrowMesh);
@@ -247,15 +255,20 @@ export function registerSwordComponent() {
       // 発射位置: 弓エンティティのワールド座標
       const pos = this.el.object3D.getWorldPosition(new THREE.Vector3());
 
-      // 発射方向: カメラの向いている方向（-Z）を使う
-      // 弓モデルの回転補正に依存しないため、カメラ基準が最も直感的
-      const camera = document.querySelector('[camera]') as any;
-      const dir = new THREE.Vector3(0, 0, -1);
-      if (camera) {
-        dir.applyQuaternion(camera.object3D.getWorldQuaternion(new THREE.Quaternion()));
-      } else {
-        dir.applyQuaternion(this.el.object3D.getWorldQuaternion(new THREE.Quaternion()));
+      // 発射方向: 弓エンティティの-Z軸 + pitch/yaw補正
+      const bowQuat = this.el.object3D.getWorldQuaternion(new THREE.Quaternion());
+      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(bowQuat);
+      // pitch(上下)補正
+      if (this.shootDirPitch !== 0) {
+        const pitchAxis = new THREE.Vector3(1, 0, 0).applyQuaternion(bowQuat);
+        dir.applyAxisAngle(pitchAxis, this.shootDirPitch);
       }
+      // yaw(左右)補正
+      if (this.shootDirYaw !== 0) {
+        const yawAxis = new THREE.Vector3(0, 1, 0).applyQuaternion(bowQuat);
+        dir.applyAxisAngle(yawAxis, this.shootDirYaw);
+      }
+      dir.normalize();
 
       if (this.arrow) {
         const worldScale = new THREE.Vector3();
@@ -312,7 +325,14 @@ export function registerSwordComponent() {
         this.nockSphere.visible = enabled || this.mode === 'bow';
         (this.nockSphere.material as any).opacity = enabled ? 0.7 : 0.35;
       }
-      console.log(`[bow] Calibration mode: ${enabled}`);
+    },
+
+    // pitch補正を増減（bow-debugから呼ばれる）
+    adjustShootPitch: function (delta: number) { this.shootDirPitch += delta; },
+    adjustShootYaw:   function (delta: number) { this.shootDirYaw   += delta; },
+
+    getShootAngles: function () {
+      return { pitch: this.shootDirPitch, yaw: this.shootDirYaw };
     },
 
     // 現在の nockOffset を取得（デバッグ表示用）

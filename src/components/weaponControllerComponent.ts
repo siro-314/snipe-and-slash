@@ -20,6 +20,7 @@ export function registerWeaponControllerComponent() {
       this.weaponEntity = null;
       this.weaponSpawned = false;
       this.currentMode = 'sword'; // このコントローラーの現在モード
+      this.triggerHeld = false;   // トリガー押しっぱなし状態
 
       // 剣の速度計測用
       this.prevSwordWorldPos = new THREE.Vector3();
@@ -80,18 +81,17 @@ export function registerWeaponControllerComponent() {
 
     // トリガー押下: 剣→弓
     onTriggerDown: function (_evt: any) {
+      this.triggerHeld = true;
       if (this.currentMode === 'sword') {
         this.equipWeapon('bow');
       }
-      // 弓モード中のトリガーは何もしない（弦操作はグリップ）
     },
 
     // トリガー離し: 弓→剣（弦を引いている最中は離さない）
     onTriggerUp: function (_evt: any) {
+      this.triggerHeld = false;
       if (this.currentMode === 'bow') {
         const swordComp = this.weaponEntity?.components?.sword;
-        // 弦を掴んで引いている最中はトリガー離しを無視
-        // → グリップを離して発射した後に剣に戻る
         if (swordComp && (swordComp.isGrabbingString || swordComp.isDrawn)) return;
         this.equipWeapon('sword');
       }
@@ -106,12 +106,15 @@ export function registerWeaponControllerComponent() {
         }
       }
 
-      // 発射後フラグ検知: 剣に戻す
+      // 発射後フラグ検知: トリガーを離していれば剣に戻す、押しっぱなしなら弓維持
       if (this.currentMode === 'bow' && this.weaponEntity) {
         const swordComp = this.weaponEntity.components?.sword;
         if (swordComp?._returnToSwordRequested) {
           swordComp._returnToSwordRequested = false;
-          this.equipWeapon('sword');
+          if (!this.triggerHeld) {
+            this.equipWeapon('sword');
+          }
+          // triggerHeld=true なら弓モードのまま（次の弦引き待機）
         }
       }
     },
