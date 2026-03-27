@@ -107,19 +107,26 @@ export function registerBowDebugComponent() {
       const btnPos = new THREE.Vector3();
       btnEl.object3D.getWorldPosition(btnPos);
 
-      // 剣で斬る
-      const swordEl = document.querySelector('[sword]') as any;
-      if (swordEl) {
-        const sp = swordEl.object3D.getWorldPosition(new THREE.Vector3());
-        if (sp.distanceTo(btnPos) < radius) return true;
-      }
-      // 矢を当てる
-      let hit = false;
-      document.querySelectorAll('[player-arrow]').forEach((a: any) => {
-        const ap = a.object3D.getWorldPosition(new THREE.Vector3());
-        if (ap.distanceTo(btnPos) < radius) hit = true;
+      // 両手のコントローラー位置で判定（剣エンティティより手の位置の方が確実）
+      ['leftHand', 'rightHand'].forEach((id: string) => {
+        // early return できないのでフラグで管理
       });
-      return hit;
+      const handIds = ['leftHand', 'rightHand'];
+      for (const id of handIds) {
+        const el = document.getElementById(id) as any;
+        if (el) {
+          const hp = el.object3D.getWorldPosition(new THREE.Vector3());
+          if (hp.distanceTo(btnPos) < radius) return true;
+        }
+      }
+
+      // 矢を当てる
+      const arrows = document.querySelectorAll('[player-arrow]');
+      for (let i = 0; i < arrows.length; i++) {
+        const ap = (arrows[i] as any).object3D.getWorldPosition(new THREE.Vector3());
+        if (ap.distanceTo(btnPos) < radius) return true;
+      }
+      return false;
     },
 
     tick: function () {
@@ -142,7 +149,7 @@ export function registerBowDebugComponent() {
       }
 
       // 方向補正ボタン（CALIB ONのみ）
-      const STEP = 0.05; // 約3度
+      const STEP = Math.PI / 2; // 90度
       if (this.calibMode && sword) {
         if (this._checkHit(this._btnPitchUp, 0.15)) { this._hitCooldown = 30; sword.adjustShootPitch( STEP); }
         if (this._checkHit(this._btnPitchDn, 0.15)) { this._hitCooldown = 30; sword.adjustShootPitch(-STEP); }
