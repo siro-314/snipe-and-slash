@@ -63,8 +63,8 @@ export function registerSwordComponent() {
 
       // 発射方向補正: 弓のローカル-Z軸からのオフセット回転（ラジアン）
       // CALIBモードで調整可能。(0,0)=補正なし
-      this.shootDirPitch = 0; // 上下補正（X軸回転）
-      this.shootDirYaw   = 0; // 左右補正（Y軸回転）
+      this.shootDirPitch = -Math.PI / 2; // 上下補正（調査結果: -90度が正解）
+      this.shootDirYaw   = 0;            // 左右補正（Y軸回転）
       // 最後の発射ログ（デバッグパネルに表示）
       this.lastShootLog = 'no shot yet';
 
@@ -83,7 +83,7 @@ export function registerSwordComponent() {
       }
 
       model.scale.set(1, 1, 1);
-      model.rotation.set(-Math.PI / 2, Math.PI / 2, Math.PI);
+      model.rotation.set(Math.PI / 2, Math.PI / 2, Math.PI);
 
       model.traverse((node: any) => {
         if (node.isMesh) {
