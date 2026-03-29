@@ -7,19 +7,13 @@ WebXRブラウザVRゲーム「SNIPE & SLASH」。剣＋弓のアクションゲ
 ## 2. ディレクトリマップと役割
 ```
 src/components/
-  weaponControllerComponent.ts  # 両手独立。triggerHeld フラグで発射後の弓維持を制御
+  weaponControllerComponent.ts  # 両手独立。triggerHeldフラグで発射後の弓維持を制御
   weapons/
-    swordComponent.ts           # 剣＋弓。nockOffset で握り判定位置を管理。lastShootLog で発射ログ
+    swordComponent.ts           # 剣＋弓。nockOffsetで握り判定位置管理。shootDirPitchで射出補正
     projectileComponent.ts      # gravity属性で放物線。進行方向にlookAt
     playerArrowComponent.ts
   debug/
-    bowDebugComponent.ts        # CALIBシステム全体を管理
-                                # - デバッグテキスト: CALIBボタン上部に固定（カメラ追従ではない）
-                                # - CALIBボタン: シーン固定（前方2m高さ1.4m）、手 or 矢で触れるとトグル
-                                # - CALIB ON中: 参照弓（-0.8 1.2 -1.5固定）を表示
-                                #   参照弓のnockSphere（緑球）をグリップで掴んで動かす
-                                #   → 手元の弓のnockOffsetに即反映
-                                # - PITCH/YAW: 矢の発射方向を90度単位で補正
+    bowDebugComponent.ts        # CALIBシステム全体を管理（下記詳細）
 index.html                      # 両手にweapon-controller
 ```
 
@@ -29,30 +23,38 @@ index.html                      # 両手にweapon-controller
 - 戻り値型アノテーションは省略（THREE.Vector3等はNG）
 - `handEl` など HTMLElement は必ず `as any` でキャストしてからA-Frame APIを使う
 - レイキャスト不使用 → UI操作は「手を近づける・矢を当てる」方式で統一
-- CALIBモードの手元弓移動ロジックは bowDebugComponent が担当（swordComponent は nockOffset の公開のみ）
+- PITCH/YAWの補正ステップは90度単位固定（軸ズレ対応用、連続調整はしない）
+- モデルのrotationは触らない。射出方向ズレは shootDirPitch の初期値で補正する
 
 ## 4. 現状と次の一手
 
-### ✅ コミット 7e824b2（最新）
-- **デバッグテキスト固定**: カメラ追従をやめてCALIBボタン上部に固定（btnRoot の子）
-- **参照弓CALIBシステム**: CALIB ON時にシーン内固定位置（-0.8 1.2 -1.5）に参照弓表示
-  - 参照弓のnockSphere（緑球）を両手グリップで掴んで動かせる
-  - 動かした量が手元の弓の nockOffset に即反映
-  - bowDebugComponent が両手のgripdown/gripupリスナーを管理（CALIB ON/OFFで付け外し）
-- **swordComponent 整理**: CALIBモードの移動ロジックを除去、nockOffset は公開プロパティのみ
-- **ボタン判定**: _checkHit 半径を0.22mに拡大（当たりやすく）
+### ✅ コミット 78ed4a8（最新）
+bowDebugComponent.ts を正式実装：
+- **[CALIB] ボタン**: 前方2m。手/矢で触れてON/OFF
+- **[NOCK CALIB] サブボタン**（CALIB ON中）:
+  - 押すと調整専用の別弓セット（緑の大球）がシーン左前方 -0.8 1.2 -1.5 に出現
+  - 手元の弓は一切変更しない（別セット）
+  - グリップで緑球を掴んで動かす → 両手の[sword]コンポーネントのnockOffsetにリアルタイム反映
+  - もう一度押すと非表示
+  - デバッグパネルに `OFS:x y z GRAB:YES/no` を数値表示
+- **[PITCH+/-][YAW+/-] ボタン**: 90度ステップで矢の射出角補正
+  - デバッグパネルに `PITCH:Xd YAW:Yd` を数値表示
 
-### 🎮 次のタスク（Quest 2でテスト）
-1. CALIBボタン（前方2m白いブロック）に手を近づけてONになるか確認
-2. CALIB ON後、左前方（-0.8 1.2 -1.5付近）に緑の球が出るか確認
-3. 参照弓の緑球をグリップで掴んで動かせるか確認
-4. 動かすと手元の弓のnockSphere（弦付近）も同じ位置に移動するか確認
-5. PITCH/YAWボタンで矢の方向調整→正面に飛ぶPITCH/YAW値を確認して定数化
-6. 確認後: bowDebugComponent削除・定数化してPhase 6へ
+### ✅ コミット 19f3f5e
+- shootDirPitch = -Math.PI/2 を初期値として設定（Quest 2での調査結果）
+- model.rotation は元の +PI/2 に維持
 
-### ❓ 未解決の疑問（テスト後に判断）
-- `fallback: false` はGLBの矢を使用中 = 正常。矢が細い場合は arrowPrefab スケールを上げる
-- 矢の方向ズレは PITCH 補正で対応（現在90度単位で調整可能）
+### ⚠️ 過去の再試行ループによる破損（解消済み）
+- 17:37〜17:46の間、別セッションのClaudeが記憶なしでedit_blockやwrite_fileを複数回実行
+- bowDebugComponent.tsが47行の壊れた状態になっていた
+- git checkout -- で復旧し、今回の78ed4a8で正式実装
+
+### ❓ 次にテストしてほしいこと（Quest 2）
+1. 矢が正面に飛ぶか（shootDirPitch=-90度デフォルト）
+2. 弓の見た目が正常か（model.rotation変更は取り消し済み）
+3. NOCK CALIB: 左前方に緑球が出るか、グリップで掴んで動かせるか
+4. デバッグパネルにOFS数値が更新されるか
+5. PITCH+/-/YAW+/-ボタンで数値が90度刻みで変化するか
 
 ## 5. 再開コマンド
 ```bash
@@ -61,4 +63,4 @@ cd ~/Desktop/snipe-and-slash && git log --oneline -5 && npm run dev
 
 **本番URL**: https://playful-concha-6af59f.netlify.app
 **GitHub**: https://github.com/siro-314/snipe-and-slash
-**最終更新**: 2026-03-27 コミット 7e824b2
+**最終更新**: 2026-03-29 コミット 78ed4a8

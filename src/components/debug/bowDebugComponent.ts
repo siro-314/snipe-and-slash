@@ -4,45 +4,46 @@
  * [CALIB] ボタン: 手/矢で触れると ON/OFF トグル
  *
  * CALIB ON 中:
- *   [NOCK CALIB] ボタン:
- *     - 調整専用の別弓セット（緑の大球）をシーン内に固定表示
- *     - 手元の弓は一切変更しない
- *     - グリップで緑球を掴んで動かす → 両手の弓にリアルタイム反映
- *     - デバッグパネルに OFFSET x,y,z を数値表示
- *     - もう一度 NOCK CALIB を押すと非表示
- *
- *   [PITCH+] [PITCH-] [YAW+] [YAW-] ボタン:
- *     - 矢の発射補正を 90度ステップで調整
- *     - デバッグパネルに PITCH/YAW 角度を数値表示
- *
- * デバッグテキスト: CALIBボタン上部に固定表示
+ *   - 左手の弓エンティティをCALIBボタン前の固定座標に移動して固定
+ *   - nockSphere を選択した軸方向にのみ動かせる
+ *   - [AXIS:X] [AXIS:Y] [AXIS:Z] ボタンで操作軸を切替
+ *   - グリップ握りながら上下/前後に動かす → 選択軸方向に nockOffset が変化
+ *   - [PITCH+/-] [YAW+/-] ボタン: 矢の発射補正を 90度ステップで調整
+ *   - デバッグパネルに OFFSET x,y,z / PITCH / YAW を数値表示
+ * CALIB OFF 中:
+ *   - 左手の弓を元の手の位置追従に戻す
  */
 export function registerBowDebugComponent() {
   AFRAME.registerComponent('bow-debug', {
 
     init: function () {
-      this.textEl      = null;
-      this.lastLog     = '';
-      this.calibMode   = false;
-      this.nockMode    = false;   // NOCK CALIB サブモード
+      this.textEl       = null;
+      this.lastLog      = '';
+      this.calibMode    = false;
       this._hitCooldown = 0;
+
+      // 操作軸: 'x' | 'y' | 'z'
+      this.activeAxis = 'y';
+
+      // グリップ中の手の追跡
+      this._axisGrabbing     = false;
+      this._axisGrabHand     = null;
+      this._axisGrabLastPos  = new THREE.Vector3();
+      this._axisGripHandlers = [];
+
+      // 左手エンティティの元のposition属性値（CALIB OFFで復元）
+      this._leftHandOrigPos = null;
 
       // ボタン参照
       this._btnCalib   = null;
-      this._btnNock    = null;
+      this._btnAxisX   = null;
+      this._btnAxisY   = null;
+      this._btnAxisZ   = null;
       this._btnPitchUp = null;
       this._btnPitchDn = null;
       this._btnYawL    = null;
       this._btnYawR    = null;
       this._btnRoot    = null;
-
-      // NOCK CALIB 用: 調整専用弓セット
-      this._refBowRoot       = null;
-      this._refNockSphere    = null;
-      this._refGrabbing      = false;
-      this._refGrabHand      = null;
-      this._refGrabOffset    = new THREE.Vector3();
-      this._refGripHandlers  = [];
 
       this._createUI();
     },
@@ -53,19 +54,20 @@ export function registerBowDebugComponent() {
     _createUI: function () {
       const scene = document.querySelector('a-scene');
 
+      // ボタン群ルート（プレイヤー前方 2m・高さ 1.4m）
       const btnRoot = document.createElement('a-entity');
       btnRoot.setAttribute('position', '0 1.4 -2');
       scene?.appendChild(btnRoot);
       this._btnRoot = btnRoot;
 
-      // --- デバッグテキストパネル（CALIBボタン上部に固定） ---
+      // --- デバッグテキストパネル ---
       const panel = document.createElement('a-entity');
-      panel.setAttribute('position', '0 0.72 0');
+      panel.setAttribute('position', '0 0.78 0');
       btnRoot.appendChild(panel);
 
       const bg = document.createElement('a-plane');
       bg.setAttribute('width',   '0.72');
-      bg.setAttribute('height',  '0.56');
+      bg.setAttribute('height',  '0.60');
       bg.setAttribute('color',   '#111111');
       bg.setAttribute('opacity', '0.9');
       panel.appendChild(bg);
@@ -74,7 +76,7 @@ export function registerBowDebugComponent() {
       text.setAttribute('value',      'BOW DEBUG\nLoading...');
       text.setAttribute('color',      '#00ff88');
       text.setAttribute('width',      '0.68');
-      text.setAttribute('position',   '-0.34 0.25 0.01');
+      text.setAttribute('position',   '-0.34 0.27 0.01');
       text.setAttribute('anchor',     'left');
       text.setAttribute('baseline',   'top');
       text.setAttribute('wrap-count', '38');
@@ -84,14 +86,16 @@ export function registerBowDebugComponent() {
       // --- メイン CALIB ボタン ---
       this._btnCalib = this._makeBtn(btnRoot, '[ CALIB: OFF ]', '#ffffff', '#333333', '0 0.25 0', 0.55, 0.14);
 
-      // --- NOCK CALIB サブボタン ---
-      this._btnNock = this._makeBtn(btnRoot, 'NOCK CALIB', '#88ff88', '#1a3a1a', '-0.17 -0.02 0', 0.26, 0.09);
+      // --- 軸選択ボタン ---
+      this._btnAxisX = this._makeBtn(btnRoot, 'AXIS:X', '#ff8888', '#2a0000', '-0.28 -0.03 0', 0.16, 0.09);
+      this._btnAxisY = this._makeBtn(btnRoot, 'AXIS:Y', '#88ff88', '#002a00', '    0 -0.03 0', 0.16, 0.09);
+      this._btnAxisZ = this._makeBtn(btnRoot, 'AXIS:Z', '#8888ff', '#00002a', ' 0.28 -0.03 0', 0.16, 0.09);
 
       // --- PITCH / YAW 調整ボタン（90度ステップ） ---
-      this._btnPitchUp = this._makeBtn(btnRoot, 'PITCH+', '#ffff88', '#2a2a00', ' 0.17 0.03 0',  0.20, 0.08);
-      this._btnPitchDn = this._makeBtn(btnRoot, 'PITCH-', '#ffff88', '#2a2a00', ' 0.17 -0.07 0', 0.20, 0.08);
-      this._btnYawL    = this._makeBtn(btnRoot, 'YAW+',   '#88ffff', '#002a2a', ' 0.17 -0.17 0', 0.20, 0.08);
-      this._btnYawR    = this._makeBtn(btnRoot, 'YAW-',   '#88ffff', '#002a2a', ' 0.17 -0.27 0', 0.20, 0.08);
+      this._btnPitchUp = this._makeBtn(btnRoot, 'PITCH+', '#ffff88', '#2a2a00', '-0.20 -0.17 0', 0.20, 0.08);
+      this._btnPitchDn = this._makeBtn(btnRoot, 'PITCH-', '#ffff88', '#2a2a00', '-0.20 -0.27 0', 0.20, 0.08);
+      this._btnYawL    = this._makeBtn(btnRoot, 'YAW+',   '#88ffff', '#002a2a', ' 0.20 -0.17 0', 0.20, 0.08);
+      this._btnYawR    = this._makeBtn(btnRoot, 'YAW-',   '#88ffff', '#002a2a', ' 0.20 -0.27 0', 0.20, 0.08);
 
       const hint = document.createElement('a-text');
       hint.setAttribute('value',    'Touch CALIB with hand or arrow');
@@ -100,6 +104,9 @@ export function registerBowDebugComponent() {
       hint.setAttribute('align',    'center');
       hint.setAttribute('position', '0 0.10 0.01');
       btnRoot.appendChild(hint);
+
+      // 初期軸ハイライト
+      this._highlightAxis('y');
     },
 
     _makeBtn: function (parent: any, label: string, textColor: string, bgColor: string,
@@ -125,13 +132,28 @@ export function registerBowDebugComponent() {
       return box;
     },
 
+    // 軸ボタンのハイライト切替
+    _highlightAxis: function (axis: string) {
+      const map: Record<string, any> = {
+        x: { btn: this._btnAxisX, activeBg: '#550000', activeText: '#ffaaaa', idleBg: '#2a0000', idleText: '#ff8888' },
+        y: { btn: this._btnAxisY, activeBg: '#005500', activeText: '#aaffaa', idleBg: '#002a00', idleText: '#88ff88' },
+        z: { btn: this._btnAxisZ, activeBg: '#000055', activeText: '#aaaaff', idleBg: '#00002a', idleText: '#8888ff' },
+      };
+      for (const [key, v] of Object.entries(map)) {
+        const active = key === axis;
+        if (v.btn) {
+          v.btn.setAttribute('color', active ? v.activeBg : v.idleBg);
+          if ((v.btn as any)._labelEl) (v.btn as any)._labelEl.setAttribute('color', active ? v.activeText : v.idleText);
+        }
+      }
+    },
+
     // =========================================================
-    //  当たり判定（手または矢がボタンに触れているか）
+    //  当たり判定
     // =========================================================
     _checkHit: function (btnEl: any, radius: number): boolean {
       if (!btnEl) return false;
       const btnPos = btnEl.object3D.getWorldPosition(new THREE.Vector3());
-
       for (const id of ['leftHand', 'rightHand']) {
         const el = document.getElementById(id) as any;
         if (el?.object3D.getWorldPosition(new THREE.Vector3()).distanceTo(btnPos) < radius) return true;
@@ -144,87 +166,61 @@ export function registerBowDebugComponent() {
     },
 
     // =========================================================
-    //  NOCK CALIB: 調整専用弓セット 表示/非表示
+    //  CALIB ON/OFF: 左手の弓を固定座標に移動 / 元に戻す
     // =========================================================
-    _showRefBow: function () {
-      if (this._refBowRoot) return;
-      const scene = document.querySelector('a-scene') as any;
+    _enterCalib: function () {
+      const leftHandEl = document.getElementById('leftHand') as any;
+      if (!leftHandEl) return;
 
-      // 調整専用弓のルート（プレイヤー前方左寄り固定）
-      const root = document.createElement('a-entity');
-      root.setAttribute('position', '-0.8 1.2 -1.5');
-      scene.appendChild(root);
-      this._refBowRoot = root;
+      // 現在の position 属性を保存（空文字 = 未設定の場合もある）
+      this._leftHandOrigPos = leftHandEl.getAttribute('position');
 
-      // ラベル
-      const label = document.createElement('a-text');
-      label.setAttribute('value',    'NOCK CALIB\nGrab green sphere\nto adjust grip position');
-      label.setAttribute('color',    '#ffff00');
-      label.setAttribute('width',    '1.0');
-      label.setAttribute('align',    'center');
-      label.setAttribute('position', '0 0.40 0');
-      root.appendChild(label);
+      // CALIBボタンの前（少し手前: z = -1.7、高さ: y = 1.2、左: x = 0）に固定
+      leftHandEl.setAttribute('position', '0 1.2 -1.7');
 
-      // 調整専用 nockSphere（大きめで掴みやすく）
-      const geo = new THREE.SphereGeometry(0.09, 12, 8);
-      const mat = new THREE.MeshBasicMaterial({
-        color: 0x00ff00, transparent: true, opacity: 0.85, wireframe: true
-      });
-      this._refNockSphere = new THREE.Mesh(geo, mat);
-
-      // 初期ワールド座標 = refBowRoot のワールド位置 + 現在の nockOffset
-      const rootWorldPos = new THREE.Vector3();
-      root.object3D.updateWorldMatrix(true, false);
-      root.object3D.getWorldPosition(rootWorldPos);
-      const sword      = this._getSword();
-      const initOffset = sword ? sword.getNockOffset() : new THREE.Vector3();
-      // ワールド座標に直接配置
-      this._refNockSphere.position.copy(rootWorldPos.clone().add(initOffset));
-      scene.object3D.add(this._refNockSphere);
-
-      // グリップイベント登録
-      this._refGripHandlers = [];
+      // グリップイベント登録（軸方向操作）
+      this._axisGripHandlers = [];
       ['leftHand', 'rightHand'].forEach((id: string) => {
         const handEl = document.getElementById(id);
         if (!handEl) return;
         const onGripDown = () => {
-          if (!this.nockMode) return;
-          const handPos   = (handEl as any).object3D.getWorldPosition(new THREE.Vector3());
-          const spherePos = this._refNockSphere.position.clone();
-          if (handPos.distanceTo(spherePos) < 0.25) {
-            this._refGrabbing  = true;
-            this._refGrabHand  = handEl;
-            this._refGrabOffset.subVectors(spherePos, handPos);
-          }
+          if (!this.calibMode) return;
+          this._axisGrabbing    = true;
+          this._axisGrabHand    = handEl;
+          this._axisGrabLastPos.copy((handEl as any).object3D.getWorldPosition(new THREE.Vector3()));
         };
         const onGripUp = () => {
-          if (this._refGrabHand === handEl) {
-            this._refGrabbing = false;
-            this._refGrabHand = null;
+          if (this._axisGrabHand === handEl) {
+            this._axisGrabbing = false;
+            this._axisGrabHand = null;
           }
         };
         handEl.addEventListener('gripdown', onGripDown);
         handEl.addEventListener('gripup',   onGripUp);
-        this._refGripHandlers.push({ handEl, onGripDown, onGripUp });
+        this._axisGripHandlers.push({ handEl, onGripDown, onGripUp });
       });
     },
 
-    _hideRefBow: function () {
-      if (this._refBowRoot) {
-        this._refBowRoot.parentNode?.removeChild(this._refBowRoot);
-        this._refBowRoot = null;
-      }
-      if (this._refNockSphere) {
-        this._refNockSphere.parent?.remove(this._refNockSphere);
-        this._refNockSphere = null;
-      }
-      this._refGripHandlers.forEach(({ handEl, onGripDown, onGripUp }: any) => {
+    _exitCalib: function () {
+      // グリップイベント解除
+      this._axisGripHandlers.forEach(({ handEl, onGripDown, onGripUp }: any) => {
         handEl.removeEventListener('gripdown', onGripDown);
         handEl.removeEventListener('gripup',   onGripUp);
       });
-      this._refGripHandlers = [];
-      this._refGrabbing = false;
-      this._refGrabHand = null;
+      this._axisGripHandlers = [];
+      this._axisGrabbing = false;
+      this._axisGrabHand = null;
+
+      // 左手を元の追従状態に戻す
+      const leftHandEl = document.getElementById('leftHand') as any;
+      if (leftHandEl) {
+        if (this._leftHandOrigPos && typeof this._leftHandOrigPos === 'object') {
+          leftHandEl.setAttribute('position', this._leftHandOrigPos);
+        } else {
+          leftHandEl.removeAttribute('position');
+        }
+      }
+      this._leftHandOrigPos = null;
     },
 
     // =========================================================
@@ -233,21 +229,27 @@ export function registerBowDebugComponent() {
     tick: function () {
       if (this._hitCooldown > 0) { this._hitCooldown--; }
 
-      // --- NOCK CALIB: refNockSphere を手で動かし両手の弓にリアルタイム反映 ---
-      if (this.nockMode && this._refGrabbing && this._refGrabHand && this._refNockSphere) {
-        const handPos = (this._refGrabHand as any).object3D.getWorldPosition(new THREE.Vector3());
-        const newWorldPos = handPos.clone().add(this._refGrabOffset);
-        this._refNockSphere.position.copy(newWorldPos);
+      // --- 軸方向操作: グリップ中の手の動きを選択軸にのみ反映 ---
+      if (this.calibMode && this._axisGrabbing && this._axisGrabHand) {
+        const curPos  = (this._axisGrabHand as any).object3D.getWorldPosition(new THREE.Vector3());
+        const delta   = curPos.clone().sub(this._axisGrabLastPos);
+        this._axisGrabLastPos.copy(curPos);
 
-        // refBowRoot のワールド座標を引いてオフセット算出 → 全 sword に反映
-        if (this._refBowRoot) {
-          const rootWorld = new THREE.Vector3();
-          this._refBowRoot.object3D.getWorldPosition(rootWorld);
-          const newOffset = newWorldPos.clone().sub(rootWorld);
-          document.querySelectorAll('[sword]').forEach((el: any) => {
-            if (el.components?.sword) el.components.sword.nockOffset.copy(newOffset);
-          });
-        }
+        // 選択軸方向の移動量のみ抽出（感度 1.5倍）
+        const sensitivity = 1.5;
+        let axisDelta = 0;
+        if      (this.activeAxis === 'x') axisDelta = delta.x * sensitivity;
+        else if (this.activeAxis === 'y') axisDelta = delta.y * sensitivity;
+        else if (this.activeAxis === 'z') axisDelta = delta.z * sensitivity;
+
+        // 全 sword の nockOffset に反映
+        document.querySelectorAll('[sword]').forEach((el: any) => {
+          if (!el.components?.sword) return;
+          const o = el.components.sword.nockOffset;
+          if      (this.activeAxis === 'x') o.x += axisDelta;
+          else if (this.activeAxis === 'y') o.y += axisDelta;
+          else if (this.activeAxis === 'z') o.z += axisDelta;
+        });
       }
 
       // --- ボタン判定 ---
@@ -259,47 +261,37 @@ export function registerBowDebugComponent() {
           this._hitCooldown = 60;
           this.calibMode = !this.calibMode;
 
-          if (!this.calibMode) {
-            // CALIB OFF: NOCK CALIB も強制終了
-            if (this.nockMode) {
-              this.nockMode = false;
-              this._hideRefBow();
-              this._setBtnColor(this._btnNock, '#1a3a1a', '#88ff88');
-            }
-            if (sword) sword.setCalibrationMode(false);
-            this._setBtnLabel(this._btnCalib, '[ CALIB: OFF ]', '#ffffff', '#333333');
-          } else {
+          if (this.calibMode) {
+            this._enterCalib();
             if (sword) sword.setCalibrationMode(true);
             this._setBtnLabel(this._btnCalib, '[ CALIB: ON  ]', '#ff4444', '#441111');
+          } else {
+            this._exitCalib();
+            if (sword) sword.setCalibrationMode(false);
+            this._setBtnLabel(this._btnCalib, '[ CALIB: OFF ]', '#ffffff', '#333333');
           }
         }
 
-        if (this.calibMode && sword) {
-          // NOCK CALIB サブボタン トグル
-          if (this._checkHit(this._btnNock, 0.18)) {
-            this._hitCooldown = 45;
-            this.nockMode = !this.nockMode;
-            if (this.nockMode) {
-              this._showRefBow();
-              this._setBtnColor(this._btnNock, '#005500', '#aaffaa');
-            } else {
-              this._hideRefBow();
-              this._setBtnColor(this._btnNock, '#1a3a1a', '#88ff88');
-            }
-          }
+        if (this.calibMode) {
+          // 軸選択ボタン
+          if (this._checkHit(this._btnAxisX, 0.13)) { this._hitCooldown = 30; this.activeAxis = 'x'; this._highlightAxis('x'); }
+          if (this._checkHit(this._btnAxisY, 0.13)) { this._hitCooldown = 30; this.activeAxis = 'y'; this._highlightAxis('y'); }
+          if (this._checkHit(this._btnAxisZ, 0.13)) { this._hitCooldown = 30; this.activeAxis = 'z'; this._highlightAxis('z'); }
 
           // PITCH / YAW 90度ステップ
-          const STEP = Math.PI / 2;
-          if (this._checkHit(this._btnPitchUp, 0.13)) { this._hitCooldown = 35; sword.adjustShootPitch( STEP); }
-          if (this._checkHit(this._btnPitchDn, 0.13)) { this._hitCooldown = 35; sword.adjustShootPitch(-STEP); }
-          if (this._checkHit(this._btnYawL,    0.13)) { this._hitCooldown = 35; sword.adjustShootYaw(   STEP); }
-          if (this._checkHit(this._btnYawR,    0.13)) { this._hitCooldown = 35; sword.adjustShootYaw(  -STEP); }
+          if (sword) {
+            const STEP = Math.PI / 2;
+            if (this._checkHit(this._btnPitchUp, 0.13)) { this._hitCooldown = 35; sword.adjustShootPitch( STEP); }
+            if (this._checkHit(this._btnPitchDn, 0.13)) { this._hitCooldown = 35; sword.adjustShootPitch(-STEP); }
+            if (this._checkHit(this._btnYawL,    0.13)) { this._hitCooldown = 35; sword.adjustShootYaw(   STEP); }
+            if (this._checkHit(this._btnYawR,    0.13)) { this._hitCooldown = 35; sword.adjustShootYaw(  -STEP); }
+          }
         }
       }
 
       // --- デバッグテキスト更新 ---
       const sword = this._getSword();
-      const mode  = sword?.mode        ?? '?';
+      const mode  = sword?.mode ?? '?';
       const grab  = sword?.isGrabbingString ? 'YES' : 'no';
       const draw  = typeof sword?.drawProgress === 'number' ? sword.drawProgress.toFixed(2) : '?';
       const near  = sword?.isNearString?.() ? 'YES' : 'no';
@@ -308,25 +300,19 @@ export function registerBowDebugComponent() {
 
       let calibLine = '';
       if (this.calibMode && sword) {
+        const o  = sword.getNockOffset();
         const ag = sword.getShootAngles();
+        calibLine  = `\nAXIS:[${this.activeAxis.toUpperCase()}] grip:${this._axisGrabbing ? 'YES' : 'no'}`;
+        calibLine += `\nOFS X:${o.x.toFixed(3)} Y:${o.y.toFixed(3)} Z:${o.z.toFixed(3)}`;
         calibLine += `\nPITCH:${(ag.pitch * 57.3).toFixed(1)}d YAW:${(ag.yaw * 57.3).toFixed(1)}d`;
-        if (this.nockMode) {
-          const o = sword.getNockOffset();
-          calibLine += `\nOFS:${o.x.toFixed(3)} ${o.y.toFixed(3)} ${o.z.toFixed(3)}`;
-          calibLine += `\nGRAB:${this._refGrabbing ? 'YES' : 'no'}`;
-        }
       }
-
-      const modeLabel = this.calibMode
-        ? `CALIB ON${this.nockMode ? ' [NOCK]' : ''}${calibLine}`
-        : 'CALIB OFF';
 
       const log = [
         `=== BOW DEBUG ===`,
         `mode:${mode} grab:${grab} draw:${draw}`,
         `near:${near} hand:${other}`,
         `last: ${last}`,
-        modeLabel,
+        this.calibMode ? `CALIB ON${calibLine}` : `CALIB OFF`,
       ].join('\n');
 
       if (log !== this.lastLog) {
@@ -335,7 +321,6 @@ export function registerBowDebugComponent() {
       }
     },
 
-    // ボタンのラベルと背景色を同時更新
     _setBtnLabel: function (btnEl: any, label: string, textColor: string, bgColor: string) {
       if (!btnEl) return;
       btnEl.setAttribute('color', bgColor);
@@ -343,13 +328,6 @@ export function registerBowDebugComponent() {
         (btnEl as any)._labelEl.setAttribute('value', label);
         (btnEl as any)._labelEl.setAttribute('color', textColor);
       }
-    },
-
-    // ボタンの背景色とテキスト色だけ更新
-    _setBtnColor: function (btnEl: any, bgColor: string, textColor: string) {
-      if (!btnEl) return;
-      btnEl.setAttribute('color', bgColor);
-      if ((btnEl as any)._labelEl) (btnEl as any)._labelEl.setAttribute('color', textColor);
     },
 
     _getSword: function () {
