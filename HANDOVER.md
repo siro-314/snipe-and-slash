@@ -28,7 +28,15 @@ index.html                      # 両手にweapon-controller
 
 ## 4. 現状と次の一手
 
-### ✅ コミット c455fb2（最新）
+### ✅ コミット 9f5babf（最新）
+- **nockSphere 形状変更**: SphereGeometry → CapsuleGeometry(r=0.12, len=0.24) でY軸方向に長い楕円形
+- **nockOffset デフォルト値**: `z=-1.0` に設定（Quest 2 CALIB調査結果）
+- **isNearString 判定**: 球の距離判定 → 楕円判定（XZ方向r=0.12, Y方向h=0.24）
+
+### ⚠️ 将来の弓サイズ縮小時のメモ
+- 弓モデルのスケールを変更する場合は nockOffset も同倍率で調整が必要
+- 理想は弓モデルの object3D スケールを参照して自動追従させる設計
+- 変更箇所: swordComponent.ts の `this.nockOffset` 初期値 + nockSphere の CapsuleGeometry サイズ
 **根本原因の修正**: `oculus-touch-controls` は毎フレーム position を上書きするため
 `setAttribute('position', ...)` では絶対に固定できなかった。
 

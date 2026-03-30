@@ -51,13 +51,14 @@ export function registerSwordComponent() {
       // z=-1.0 はQuest 2でのCALIB調査結果
       this.nockOffset = new THREE.Vector3(0, 0, -1.0);
 
-      // CapsuleGeometry(radius, length, capSegments, radialSegments)
-      // Y軸方向に長い楕円形（radius=0.12, length=0.24）
-      const capsuleGeo = new THREE.CapsuleGeometry(0.12, 0.24, 8, 12);
-      const capsuleMat = new THREE.MeshBasicMaterial({
+      // SphereGeometry をY軸2倍にスケールして楕円体（Ellipsoid）として使用
+      // Three.jsにEllipsoidGeometryは存在しないため、これが最もシンプルな実装
+      const sphereGeo = new THREE.SphereGeometry(0.12, 12, 8);
+      const sphereMat = new THREE.MeshBasicMaterial({
         color: 0x00ff00, transparent: true, opacity: 0.35, wireframe: true
       });
-      this.nockSphere = new THREE.Mesh(capsuleGeo, capsuleMat);
+      this.nockSphere = new THREE.Mesh(sphereGeo, sphereMat);
+      this.nockSphere.scale.set(1, 2, 1); // Y軸方向に2倍 → 楕円体
       this.nockSphere.visible = false;
       this.el.sceneEl.object3D.add(this.nockSphere);
 
@@ -126,33 +127,39 @@ export function registerSwordComponent() {
     },
 
     // 握り判定の中心ワールド座標を返す
+    // nockOffset は弓のローカル座標系で保持し、弓のワールド回転を適用してから加算する
+    // これにより弓を回転しても握り判定位置が弓に追従する
     _getNockWorldPos: function () {
       const base = new THREE.Vector3();
+      const bowWorldQuat = this.el.object3D.getWorldQuaternion(new THREE.Quaternion());
+
       if (this.string) {
         this.string.getWorldPosition(base);
       } else {
         // フォールバック: 弓エンティティ前方
-        const offset = new THREE.Vector3(0, 0, 0.2);
-        offset.applyQuaternion(this.el.object3D.getWorldQuaternion(new THREE.Quaternion()));
-        this.el.object3D.getWorldPosition(base).add(offset);
+        const fallback = new THREE.Vector3(0, 0, 0.2).applyQuaternion(bowWorldQuat);
+        this.el.object3D.getWorldPosition(base).add(fallback);
       }
-      return base.add(this.nockOffset);
+
+      // nockOffset を弓ローカル → ワールド変換して加算
+      const worldOffset = this.nockOffset.clone().applyQuaternion(bowWorldQuat);
+      return base.add(worldOffset);
     },
 
     isNearString: function (): boolean {
       if (!this.otherHand) return false;
       const handPos  = this.otherHand.object3D.getWorldPosition(new THREE.Vector3());
       const nockPos  = this._getNockWorldPos();
-      const diff     = handPos.clone().sub(nockPos);
 
-      // カプセル形状に合わせた楕円判定
-      // Y方向: radius(0.12) + halfLength(0.12) = 0.24m
-      // XZ方向: radius 0.12m
+      // 楕円体判定: nockSphere の scale(1, 2, 1) に合わせた楕円
+      // X/Z方向: radius=0.12, Y方向: radius*2=0.24
+      const diff    = handPos.clone().sub(nockPos);
       const radiusXZ = 0.12;
-      const halfH    = 0.24;
-      const normXZ   = Math.sqrt(diff.x * diff.x + diff.z * diff.z) / radiusXZ;
-      const normY    = Math.abs(diff.y) / halfH;
-      return (normXZ * normXZ + normY * normY) <= 1.0;
+      const radiusY  = 0.24; // scale.y=2倍
+      const nx = diff.x / radiusXZ;
+      const ny = diff.y / radiusY;
+      const nz = diff.z / radiusXZ;
+      return (nx * nx + ny * ny + nz * nz) <= 1.0;
     },
 
     // 逆の手を設定（weapon-controllerから呼ばれる）
