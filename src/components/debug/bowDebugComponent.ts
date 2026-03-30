@@ -166,17 +166,19 @@ export function registerBowDebugComponent() {
     },
 
     // =========================================================
-    //  CALIB ON/OFF: 左手の弓を固定座標に移動 / 元に戻す
+    //  CALIB ON/OFF: 左手の弓を固定座標に毎フレーム強制移動
     // =========================================================
     _enterCalib: function () {
-      const leftHandEl = document.getElementById('leftHand') as any;
-      if (!leftHandEl) return;
+      // CALIBボタン（0 1.4 -2）の少し手前・やや低い位置
+      const fixedPos = new THREE.Vector3(0, 1.2, -1.7);
 
-      // 現在の position 属性を保存（空文字 = 未設定の場合もある）
-      this._leftHandOrigPos = leftHandEl.getAttribute('position');
-
-      // CALIBボタンの前（少し手前: z = -1.7、高さ: y = 1.2、左: x = 0）に固定
-      leftHandEl.setAttribute('position', '0 1.2 -1.7');
+      // 左手の sword コンポーネントに固定座標を渡す
+      // sword の tick() が毎フレーム oculus-touch-controls に勝って上書きする
+      document.querySelectorAll('[sword]').forEach((el: any) => {
+        if (el.components?.sword) {
+          el.components.sword.setCalibrationMode(true, fixedPos);
+        }
+      });
 
       // グリップイベント登録（軸方向操作）
       this._axisGripHandlers = [];
@@ -211,16 +213,12 @@ export function registerBowDebugComponent() {
       this._axisGrabbing = false;
       this._axisGrabHand = null;
 
-      // 左手を元の追従状態に戻す
-      const leftHandEl = document.getElementById('leftHand') as any;
-      if (leftHandEl) {
-        if (this._leftHandOrigPos && typeof this._leftHandOrigPos === 'object') {
-          leftHandEl.setAttribute('position', this._leftHandOrigPos);
-        } else {
-          leftHandEl.removeAttribute('position');
+      // sword の固定解除（null を渡す）
+      document.querySelectorAll('[sword]').forEach((el: any) => {
+        if (el.components?.sword) {
+          el.components.sword.setCalibrationMode(false);
         }
-      }
-      this._leftHandOrigPos = null;
+      });
     },
 
     // =========================================================
@@ -263,11 +261,9 @@ export function registerBowDebugComponent() {
 
           if (this.calibMode) {
             this._enterCalib();
-            if (sword) sword.setCalibrationMode(true);
             this._setBtnLabel(this._btnCalib, '[ CALIB: ON  ]', '#ff4444', '#441111');
           } else {
             this._exitCalib();
-            if (sword) sword.setCalibrationMode(false);
             this._setBtnLabel(this._btnCalib, '[ CALIB: OFF ]', '#ffffff', '#333333');
           }
         }
