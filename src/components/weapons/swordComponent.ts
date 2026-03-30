@@ -46,15 +46,18 @@ export function registerSwordComponent() {
       this.arrow = null;
       this.arrowPrefab = null;
 
-      // 握り判定: 球で可視化（位置調整モードで動かせる）
+      // 握り判定: Y軸方向に長いカプセル形で可視化
       // 位置オフセット: 弦のワールド座標からの相対補正値（調整モードで更新）
-      this.nockOffset = new THREE.Vector3(0, 0, 0);
+      // z=-1.0 はQuest 2でのCALIB調査結果
+      this.nockOffset = new THREE.Vector3(0, 0, -1.0);
 
-      const sphereGeo = new THREE.SphereGeometry(0.12, 12, 8);
-      const sphereMat = new THREE.MeshBasicMaterial({
+      // CapsuleGeometry(radius, length, capSegments, radialSegments)
+      // Y軸方向に長い楕円形（radius=0.12, length=0.24）
+      const capsuleGeo = new THREE.CapsuleGeometry(0.12, 0.24, 8, 12);
+      const capsuleMat = new THREE.MeshBasicMaterial({
         color: 0x00ff00, transparent: true, opacity: 0.35, wireframe: true
       });
-      this.nockSphere = new THREE.Mesh(sphereGeo, sphereMat);
+      this.nockSphere = new THREE.Mesh(capsuleGeo, capsuleMat);
       this.nockSphere.visible = false;
       this.el.sceneEl.object3D.add(this.nockSphere);
 
@@ -138,9 +141,18 @@ export function registerSwordComponent() {
 
     isNearString: function (): boolean {
       if (!this.otherHand) return false;
-      const handPos = this.otherHand.object3D.getWorldPosition(new THREE.Vector3());
-      const dist = handPos.distanceTo(this._getNockWorldPos());
-      return dist < 0.15; // 球の半径と合わせて0.15m
+      const handPos  = this.otherHand.object3D.getWorldPosition(new THREE.Vector3());
+      const nockPos  = this._getNockWorldPos();
+      const diff     = handPos.clone().sub(nockPos);
+
+      // カプセル形状に合わせた楕円判定
+      // Y方向: radius(0.12) + halfLength(0.12) = 0.24m
+      // XZ方向: radius 0.12m
+      const radiusXZ = 0.12;
+      const halfH    = 0.24;
+      const normXZ   = Math.sqrt(diff.x * diff.x + diff.z * diff.z) / radiusXZ;
+      const normY    = Math.abs(diff.y) / halfH;
+      return (normXZ * normXZ + normY * normY) <= 1.0;
     },
 
     // 逆の手を設定（weapon-controllerから呼ばれる）
