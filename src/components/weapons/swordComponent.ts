@@ -59,9 +59,10 @@ export function registerSwordComponent() {
       this.el.sceneEl.object3D.add(this.nockSphere);
 
       // 位置調整モード
-      // calibFixedWorldPos が非nullの間、tick()で毎フレームそのワールド座標に強制移動
-      this.calibrationMode = false;
+      // calibFixedWorldPos/Quat が非nullの間、tick()で毎フレーム強制上書き（oculus-touch-controls に勝つ）
+      this.calibrationMode    = false;
       this.calibFixedWorldPos = null; // THREE.Vector3 | null
+      this.calibFixedWorldQuat = null; // THREE.Quaternion | null
 
       // 発射方向補正: 弓のローカル-Z軸からのオフセット回転（ラジアン）
       // CALIBモードで調整可能。(0,0)=補正なし
@@ -300,9 +301,10 @@ export function registerSwordComponent() {
     },
 
     // 位置調整モードの切替（bow-debugから呼ばれる）
-    setCalibrationMode: function (enabled: boolean, fixedWorldPos?: any) {
-      this.calibrationMode = enabled;
-      this.calibFixedWorldPos = enabled && fixedWorldPos ? fixedWorldPos.clone() : null;
+    setCalibrationMode: function (enabled: boolean, fixedWorldPos?: any, fixedWorldQuat?: any) {
+      this.calibrationMode     = enabled;
+      this.calibFixedWorldPos  = enabled && fixedWorldPos  ? fixedWorldPos.clone()  : null;
+      this.calibFixedWorldQuat = enabled && fixedWorldQuat ? fixedWorldQuat.clone() : null;
       if (this.nockSphere) {
         this.nockSphere.visible = enabled || this.mode === 'bow';
         (this.nockSphere.material as any).opacity = enabled ? 0.7 : 0.35;
@@ -329,14 +331,23 @@ export function registerSwordComponent() {
         return;
       }
 
-      // CALIB中: oculus-touch-controlsの上書きに勝つため毎フレーム強制移動
+      // CALIB中: oculus-touch-controlsの上書きに勝つため毎フレーム強制上書き
       if (this.calibrationMode && this.calibFixedWorldPos) {
         const parent = this.el.object3D.parent;
         if (parent) {
-          // ワールド座標 → 親のローカル座標に変換して set
           const localPos = this.calibFixedWorldPos.clone();
           parent.worldToLocal(localPos);
           this.el.object3D.position.copy(localPos);
+        }
+      }
+      if (this.calibrationMode && this.calibFixedWorldQuat) {
+        const parent = this.el.object3D.parent;
+        if (parent) {
+          // ワールドQuatを親のローカルQuatに変換
+          const parentWorldQuat = new THREE.Quaternion();
+          parent.getWorldQuaternion(parentWorldQuat);
+          const localQuat = parentWorldQuat.clone().invert().multiply(this.calibFixedWorldQuat);
+          this.el.object3D.quaternion.copy(localQuat);
         }
       }
 

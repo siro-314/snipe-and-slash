@@ -28,8 +28,15 @@ index.html                      # 両手にweapon-controller
 
 ## 4. 現状と次の一手
 
-### ✅ コミット 4e7f684（最新）
-bowDebugComponent.ts を全面再設計：
+### ✅ コミット c455fb2（最新）
+**根本原因の修正**: `oculus-touch-controls` は毎フレーム position を上書きするため
+`setAttribute('position', ...)` では絶対に固定できなかった。
+
+**正しい解決策**:
+- `sword.setCalibrationMode(true, fixedWorldPos)` で固定座標を渡す
+- `swordComponent.tick()` の**先頭**で毎フレーム `object3D.position` を強制上書き
+- `oculus-touch-controls` の更新より後で実行されるので勝てる
+- CALIB OFF → `calibFixedWorldPos = null` にして固定解除、自然に手追従に戻る
 
 **CALIBの新しい設計（3本目の弓を出す発想を廃止）:**
 - CALIB ON → 左手エンティティ（#leftHand）の position を固定座標 `0 1.2 -1.7` に変更

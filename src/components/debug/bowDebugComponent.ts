@@ -169,14 +169,17 @@ export function registerBowDebugComponent() {
     //  CALIB ON/OFF: 左手の弓を固定座標に毎フレーム強制移動
     // =========================================================
     _enterCalib: function () {
-      // CALIBボタン（0 1.4 -2）の少し手前・やや低い位置
       const fixedPos = new THREE.Vector3(0, 1.2, -1.7);
 
-      // 左手の sword コンポーネントに固定座標を渡す
-      // sword の tick() が毎フレーム oculus-touch-controls に勝って上書きする
+      // 弓がプレイヤーの方を向く固定向き
+      // model.rotation.set(PI/2, PI/2, PI) と同じ回転をワールドQuatとして指定
+      const fixedQuat = new THREE.Quaternion();
+      fixedQuat.setFromEuler(new THREE.Euler(Math.PI / 2, Math.PI / 2, Math.PI));
+
+      // sword の tick() が毎フレーム oculus-touch-controls に勝って pos/rot を上書き
       document.querySelectorAll('[sword]').forEach((el: any) => {
         if (el.components?.sword) {
-          el.components.sword.setCalibrationMode(true, fixedPos);
+          el.components.sword.setCalibrationMode(true, fixedPos, fixedQuat);
         }
       });
 
