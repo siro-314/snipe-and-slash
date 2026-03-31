@@ -48,11 +48,11 @@ export function registerSwordComponent() {
 
       // 握り判定: Y軸方向に長いカプセル形で可視化
       // 位置オフセット: 弦のワールド座標からの相対補正値（調整モードで更新）
-      // X:0, Y:1, Z:0 はQuest 2でのCALIB調査結果（弓ローカル座標系）
-      this.nockOffset = new THREE.Vector3(0, 1.0, 0);
+      // X:0, Y:0.9, Z:0 はQuest 2 CALIB調査結果(0,1,0) × 弓スケール0.9倍
+      this.nockOffset = new THREE.Vector3(0, 0.9, 0);
 
       // SphereGeometry をY軸2倍にスケールして楕円体（Ellipsoid）として使用
-      // Three.jsにEllipsoidGeometryは存在しないため、これが最もシンプルな実装
+      // 弓エンティティの子として追加することで、弓の回転・位置に自動追従する
       const sphereGeo = new THREE.SphereGeometry(0.12, 12, 8);
       const sphereMat = new THREE.MeshBasicMaterial({
         color: 0x00ff00, transparent: true, opacity: 0.35, wireframe: true
@@ -60,7 +60,7 @@ export function registerSwordComponent() {
       this.nockSphere = new THREE.Mesh(sphereGeo, sphereMat);
       this.nockSphere.scale.set(1, 2, 1); // Y軸方向に2倍 → 楕円体
       this.nockSphere.visible = false;
-      this.el.sceneEl.object3D.add(this.nockSphere);
+      this.el.object3D.add(this.nockSphere); // シーンルートではなく弓の子に追加
 
       // 位置調整モード
       // calibFixedWorldPos/Quat が非nullの間、tick()で毎フレーム強制上書き（oculus-touch-controls に勝つ）
@@ -89,7 +89,7 @@ export function registerSwordComponent() {
         return;
       }
 
-      model.scale.set(1, 1, 1);
+      model.scale.set(0.9, 0.9, 0.9); // 弓形態のサイズを0.9倍に縮小
       model.rotation.set(Math.PI / 2, Math.PI / 2, Math.PI);
 
       model.traverse((node: any) => {
@@ -126,9 +126,9 @@ export function registerSwordComponent() {
       this.el.setObject3D('mesh', new THREE.Mesh(geo, mat));
     },
 
-    // 握り判定の中心ワールド座標を返す
-    // nockOffset は弓のローカル座標系で保持し、弓のワールド回転を適用してから加算する
-    // これにより弓を回転しても握り判定位置が弓に追従する
+    // 握り判定の中心ワールド座標を返す（当たり判定・引き量計算に使用）
+    // nockSphere は弓の子なので、ローカル座標を設定すれば自動で弓に追従する
+    // このメソッドはワールド座標を返す（isNearString/drawProgress計算用）
     _getNockWorldPos: function () {
       const base = new THREE.Vector3();
       const bowWorldQuat = this.el.object3D.getWorldQuaternion(new THREE.Quaternion());
@@ -144,6 +144,22 @@ export function registerSwordComponent() {
       // nockOffset を弓ローカル → ワールド変換して加算
       const worldOffset = this.nockOffset.clone().applyQuaternion(bowWorldQuat);
       return base.add(worldOffset);
+    },
+
+    // nockSphere のローカル座標を更新（tick内で呼ぶ）
+    // 弓の子なのでローカル座標で直接指定できる
+    _updateNockSphereLocalPos: function () {
+      if (!this.nockSphere) return;
+      // string のローカル座標 + nockOffset をそのままローカルで計算
+      if (this.string) {
+        // string のローカル座標を弓エンティティ基準で取得
+        const stringLocalPos = new THREE.Vector3();
+        this.string.getWorldPosition(stringLocalPos);
+        this.el.object3D.worldToLocal(stringLocalPos);
+        this.nockSphere.position.copy(stringLocalPos.add(this.nockOffset));
+      } else {
+        this.nockSphere.position.copy(this.nockOffset);
+      }
     },
 
     isNearString: function (): boolean {
@@ -370,9 +386,9 @@ export function registerSwordComponent() {
         }
       }
 
-      // 球の位置・色を更新（弓モードまたは調整モード中）
+      // nockSphereのローカル位置を更新（弓の子なので回転は自動追従）
       if ((this.mode === 'bow' || this.calibrationMode) && this.nockSphere) {
-        this.nockSphere.position.copy(this._getNockWorldPos());
+        this._updateNockSphereLocalPos();
         const near = this.isNearString();
         const color = this.isGrabbingString
           ? 0xff0000
