@@ -58,7 +58,7 @@ export function registerSwordComponent() {
         color: 0x00ff00, transparent: true, opacity: 0.35, wireframe: true
       });
       this.nockSphere = new THREE.Mesh(sphereGeo, sphereMat);
-      this.nockSphere.scale.set(1, 2, 1); // Y軸方向に2倍 → 楕円体
+      this.nockSphere.scale.set(2, 1, 1); // X軸方向に2倍 → 弓の長軸方向に楕円体（要テスト、ダメならZ軸）
       this.nockSphere.visible = false;
       this.el.object3D.add(this.nockSphere); // シーンルートではなく弓の子に追加
 
@@ -167,14 +167,14 @@ export function registerSwordComponent() {
       const handPos  = this.otherHand.object3D.getWorldPosition(new THREE.Vector3());
       const nockPos  = this._getNockWorldPos();
 
-      // 楕円体判定: nockSphere の scale(1, 2, 1) に合わせた楕円
-      // X/Z方向: radius=0.12, Y方向: radius*2=0.24
-      const diff    = handPos.clone().sub(nockPos);
-      const radiusXZ = 0.12;
-      const radiusY  = 0.24; // scale.y=2倍
-      const nx = diff.x / radiusXZ;
-      const ny = diff.y / radiusY;
-      const nz = diff.z / radiusXZ;
+      // 楕円体判定: nockSphere の scale(2, 1, 1) に合わせた楕円
+      // X方向: radius*2=0.24, Y/Z方向: radius=0.12
+      const diff     = handPos.clone().sub(nockPos);
+      const radiusX  = 0.24; // scale.x=2倍
+      const radiusYZ = 0.12;
+      const nx = diff.x / radiusX;
+      const ny = diff.y / radiusYZ;
+      const nz = diff.z / radiusYZ;
       return (nx * nx + ny * ny + nz * nz) <= 1.0;
     },
 

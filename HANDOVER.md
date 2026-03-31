@@ -28,14 +28,12 @@ index.html                      # 両手にweapon-controller
 
 ## 4. 現状と次の一手
 
-### ✅ コミット 48f04ce（最新）
-- **nockSphere 形状**: CapsuleGeometry → SphereGeometry + `scale.set(1, 2, 1)` で楕円体（Ellipsoid）
-  - Three.jsにEllipsoidGeometryは存在しないため、スケール変形が最もシンプル
-- **nockOffset をローカル座標系に修正（本質的バグ修正）**:
-  - 旧: `base.add(this.nockOffset)` → ワールド空間に直接加算（弓回転で握り位置がズレる）
-  - 新: `nockOffset.clone().applyQuaternion(bowWorldQuat)` → 弓ローカル→ワールド変換してから加算
-  - これで弓の角度を変えても握り判定が弓に追従する
-- **isNearString 判定**: 楕円体スケールに合わせて更新（X/Z=0.12, Y=0.24）
+### ✅ コミット 71b88f7（最新）
+- **nockSphere を弓エンティティの子に変更**: `scene.add` → `this.el.object3D.add`
+  - 弓の回転が自動追従するため angle ズレが解消
+  - tick内でローカル座標更新 (`_updateNockSphereLocalPos`) に変更
+- **弓モデルを0.9倍**: `model.scale.set(0.9, 0.9, 0.9)` — `tryLoadModel`内で1回だけ設定（切り替えループで累積しない）
+- **nockOffset を0.9倍**: `(0, 0.9, 0)` に更新（CALIB結果(0,1,0) × 0.9）
 
 ### CALIBシステムの設計（現行）
 - CALIB ON → 左手の弓を固定座標 `0 1.2 -1.7` に毎フレーム強制移動（tick()でoculus-touch-controlsに勝つ）
