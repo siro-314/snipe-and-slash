@@ -60,7 +60,7 @@ export function registerSwordComponent() {
       this.nockSphere = new THREE.Mesh(sphereGeo, sphereMat);
       this.nockSphere.scale.set(1, 1, 2); // Z軸方向に2倍 → 弓の長軸方向に楕円体
       this.nockSphere.visible = false;
-      this.el.object3D.add(this.nockSphere); // シーンルートではなく弓の子に追加
+      this.el.sceneEl.object3D.add(this.nockSphere); // シーンルートに配置（スケール影響を受けない）
 
       // 位置調整モード
       // calibFixedWorldPos/Quat が非nullの間、tick()で毎フレーム強制上書き（oculus-touch-controls に勝つ）
@@ -146,24 +146,13 @@ export function registerSwordComponent() {
       return base.add(worldOffset);
     },
 
-    // nockSphere のローカル座標を更新（tick内で呼ぶ）
-    // 弓の子なので回転は自動追従。親スケール(0.7)の影響を受けないよう逆数で補正する
-    _updateNockSphereLocalPos: function () {
+    // nockSphere のワールド座標を更新（tick内で呼ぶ）
+    // シーンルートに配置しているので position はワールド座標で直接指定できる
+    // quaternion は弓のワールド回転をコピーすることで角度追従を実現
+    _updateNockSphereWorldTransform: function () {
       if (!this.nockSphere) return;
-      const s = this.el.object3D.scale.x || 1.0;
-      const inv = 1.0 / s; // 親スケールの逆数（0.7→約1.43）
-      if (this.string) {
-        // string のワールド座標を弓エンティティのローカルに変換するとスケール込みになるため
-        // モデルのローカル座標（string.position）を直接使い、逆数を掛けてnockOffsetを加算
-        const sp = this.string.position; // モデル内のローカル座標（スケール非依存）
-        this.nockSphere.position.set(
-          sp.x * inv + this.nockOffset.x * inv,
-          sp.y * inv + this.nockOffset.y * inv,
-          sp.z * inv + this.nockOffset.z * inv
-        );
-      } else {
-        this.nockSphere.position.copy(this.nockOffset).multiplyScalar(inv);
-      }
+      this.nockSphere.position.copy(this._getNockWorldPos());
+      this.el.object3D.getWorldQuaternion(this.nockSphere.quaternion);
     },
 
     isNearString: function (): boolean {
@@ -392,9 +381,9 @@ export function registerSwordComponent() {
         }
       }
 
-      // nockSphereのローカル位置を更新（弓の子なので回転は自動追従）
+      // nockSphereの位置・回転をワールド座標で更新（シーンルートに配置しているため）
       if ((this.mode === 'bow' || this.calibrationMode) && this.nockSphere) {
-        this._updateNockSphereLocalPos();
+        this._updateNockSphereWorldTransform();
         const near = this.isNearString();
         const color = this.isGrabbingString
           ? 0xff0000

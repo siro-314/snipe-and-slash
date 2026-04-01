@@ -28,12 +28,12 @@ index.html                      # 両手にweapon-controller
 
 ## 4. 現状と次の一手
 
-### ✅ コミット c0fd8cb（最新）
-- **弓スケールを剣と分離**: `model.scale` ではなく `setMode` 内で `this.el.object3D.scale` を切替
-  - 弓形態: `scale(0.7, 0.7, 0.7)` / 剣形態: `scale(1, 1, 1)` に戻す
-  - 切り替えのたびに累積しない設計
-- **nockOffset**: `(0, 0.7, 0)` に更新（CALIB結果(0,1,0) × 0.7）
-- **nockSphere楕円軸Z確定**: `scale(1,1,2)` — X軸テスト済みでハズレ
+### ✅ コミット d5da3c0（最新）
+- **nockSphere表示位置のスケール補正**:
+  - 弓エンティティが `scale(0.7)` のため、子のnockSphereのlocalPos指定もスケール圧縮される
+  - `_updateNockSphereLocalPos` で逆数 `1/0.7 ≈ 1.43` を掛けて打ち消す
+  - nockOffset は `(0, 1.0, 0)` に戻す（スケール非依存の純粋な調査結果値）
+  - 当たり判定（`_getNockWorldPos`）はワールド座標ベースなので影響なし（元々正しかった）
 
 ### CALIBシステムの設計（現行）
 - CALIB ON → 左手の弓を固定座標 `0 1.2 -1.7` に毎フレーム強制移動（tick()でoculus-touch-controlsに勝つ）
