@@ -78,8 +78,87 @@ export function registerSwordComponent() {
       // 当たり判定有効化（3秒後）
       setTimeout(() => { this.isReady = true; }, 3000);
 
+      this._initAimReticle();
       this.createFallbackGeometry();
       this.tryLoadModel();
+    },
+
+    // ── 照準レティクル ──────────────────────────────────────────────
+    // 弓ローカルY-方向にRaycastし衝突点（なければ100m先）に表示
+    // 外枠リング（白・細）+ 内側水色40%半透明円（drawProgressで縮小）
+    _initAimReticle: function () {
+      const scene = this.el.sceneEl.object3D;
+
+      // 外枠リング: TorusGeometry(radius, tube, radialSeg, tubularSeg)
+      const ringGeo = new THREE.TorusGeometry(0.06, 0.004, 8, 32);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff, transparent: true, opacity: 0.9, depthTest: false
+      });
+      this.aimRing = new THREE.Mesh(ringGeo, ringMat);
+
+      // 内側塗りつぶし円: CircleGeometry
+      const fillGeo = new THREE.CircleGeometry(0.06, 32);
+      const fillMat = new THREE.MeshBasicMaterial({
+        color: 0x00ccff, transparent: true, opacity: 0.4,
+        side: THREE.DoubleSide, depthTest: false
+      });
+      this.aimFill = new THREE.Mesh(fillGeo, fillMat);
+
+      // グループにまとめてシーンルートへ（スケール影響を受けないため）
+      this.aimGroup = new THREE.Group();
+      this.aimGroup.add(this.aimRing);
+      this.aimGroup.add(this.aimFill);
+      this.aimGroup.visible = false;
+      scene.add(this.aimGroup);
+
+      // Raycast用
+      this._aimRaycaster = new THREE.Raycaster();
+    },
+
+    _updateAimReticle: function () {
+      if (!this.aimGroup) return;
+
+      // 弓のワールド座標・方向を取得
+      const bowWorldPos  = this.el.object3D.getWorldPosition(new THREE.Vector3());
+      const bowWorldQuat = this.el.object3D.getWorldQuaternion(new THREE.Quaternion());
+
+      // 弓ローカルY- 方向（照準方向）をワールド空間に変換
+      const aimDir = new THREE.Vector3(0, -1, 0).applyQuaternion(bowWorldQuat).normalize();
+
+      // RayCast: シーン内の全メッシュを対象に射線判定
+      this._aimRaycaster.set(bowWorldPos, aimDir);
+      this._aimRaycaster.far = 100;
+      const intersects = this._aimRaycaster.intersectObjects(
+        this.el.sceneEl.object3D.children, true
+      );
+
+      // aimGroup自身・nockSphere・照準リングを除外して最初のヒット点を使う
+      const excluded = new Set([this.aimGroup, this.nockSphere]);
+      let hitPoint = null;
+      for (const hit of intersects) {
+        let obj = hit.object;
+        let skip = false;
+        while (obj) { if (excluded.has(obj)) { skip = true; break; } obj = obj.parent; }
+        if (!skip) { hitPoint = hit.point; break; }
+      }
+
+      // ヒットなければ最大距離（100m）先
+      const targetPos = hitPoint ?? bowWorldPos.clone().addScaledVector(aimDir, 100);
+
+      // 照準を衝突点に移動し、弓の方向に正対（aimDirの逆方向を法線として向ける）
+      this.aimGroup.position.copy(targetPos);
+      this.aimGroup.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 0, 1),
+        aimDir.clone().negate() // 弓から見て正面を向かせる
+      );
+
+      // 内円サイズ: drawProgress=0 → 最大, 1 → 0
+      const fillScale = Math.max(0, 1 - this.drawProgress);
+      this.aimFill.scale.setScalar(fillScale);
+
+      // 外枠はdrawProgressに応じて白→水色に変化（射手へのフィードバック）
+      const t = this.drawProgress;
+      (this.aimRing.material as any).color.setRGB(1 - t * 0.5, 1 - t * 0.2, 1);
     },
 
     tryLoadModel: function () {
@@ -204,6 +283,7 @@ export function registerSwordComponent() {
         if (this.string) this.string.visible = true;
         if (this.arrow) { this.arrow.visible = false; if (this.arrow.material) this.arrow.material.opacity = 0; }
         if (this.nockSphere) this.nockSphere.visible = true;
+        if (this.aimGroup) this.aimGroup.visible = true;
       } else {
         this.el.object3D.scale.set(1, 1, 1); // 剣形態は等倍に戻す
         if (this.upperBlade?.morphTargetInfluences) this.upperBlade.morphTargetInfluences[this.morphIndex] = 0;
@@ -213,6 +293,7 @@ export function registerSwordComponent() {
         this.isGrabbingString = false;
         this.isDrawn = false;
         if (this.nockSphere) this.nockSphere.visible = false;
+        if (this.aimGroup) this.aimGroup.visible = false;
       }
     },
 
@@ -389,6 +470,11 @@ export function registerSwordComponent() {
           ? 0xff0000
           : near ? 0xffff00 : 0x00ff00;
         (this.nockSphere.material as any).color.setHex(color);
+      }
+
+      // 照準レティクル更新（弓モード時のみ）
+      if (this.mode === 'bow') {
+        this._updateAimReticle();
       }
 
       // 弓モード中: 引き量計算
