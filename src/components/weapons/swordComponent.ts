@@ -48,8 +48,8 @@ export function registerSwordComponent() {
 
       // 握り判定: Y軸方向に長いカプセル形で可視化
       // 位置オフセット: 弦のワールド座標からの相対補正値（調整モードで更新）
-      // X:0, Y:0.7, Z:0 はCALIB調査結果(0,1,0) × 弓スケール0.7倍
-      this.nockOffset = new THREE.Vector3(0, 0.7, 0);
+      // X:0, Y:1.0, Z:0 はQuest 2 CALIB調査結果（弓ローカル座標系・スケール非依存）
+      this.nockOffset = new THREE.Vector3(0, 1.0, 0);
 
       // SphereGeometry をY軸2倍にスケールして楕円体（Ellipsoid）として使用
       // 弓エンティティの子として追加することで、弓の回転・位置に自動追従する
@@ -147,18 +147,22 @@ export function registerSwordComponent() {
     },
 
     // nockSphere のローカル座標を更新（tick内で呼ぶ）
-    // 弓の子なのでローカル座標で直接指定できる
+    // 弓の子なので回転は自動追従。親スケール(0.7)の影響を受けないよう逆数で補正する
     _updateNockSphereLocalPos: function () {
       if (!this.nockSphere) return;
-      // string のローカル座標 + nockOffset をそのままローカルで計算
+      const s = this.el.object3D.scale.x || 1.0;
+      const inv = 1.0 / s; // 親スケールの逆数（0.7→約1.43）
       if (this.string) {
-        // string のローカル座標を弓エンティティ基準で取得
-        const stringLocalPos = new THREE.Vector3();
-        this.string.getWorldPosition(stringLocalPos);
-        this.el.object3D.worldToLocal(stringLocalPos);
-        this.nockSphere.position.copy(stringLocalPos.add(this.nockOffset));
+        // string のワールド座標を弓エンティティのローカルに変換するとスケール込みになるため
+        // モデルのローカル座標（string.position）を直接使い、逆数を掛けてnockOffsetを加算
+        const sp = this.string.position; // モデル内のローカル座標（スケール非依存）
+        this.nockSphere.position.set(
+          sp.x * inv + this.nockOffset.x * inv,
+          sp.y * inv + this.nockOffset.y * inv,
+          sp.z * inv + this.nockOffset.z * inv
+        );
       } else {
-        this.nockSphere.position.copy(this.nockOffset);
+        this.nockSphere.position.copy(this.nockOffset).multiplyScalar(inv);
       }
     },
 
