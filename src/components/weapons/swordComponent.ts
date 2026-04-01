@@ -48,8 +48,8 @@ export function registerSwordComponent() {
 
       // 握り判定: Y軸方向に長いカプセル形で可視化
       // 位置オフセット: 弦のワールド座標からの相対補正値（調整モードで更新）
-      // X:0, Y:1.0, Z:0 はQuest 2 CALIB調査結果（弓ローカル座標系・スケール非依存）
-      this.nockOffset = new THREE.Vector3(0, 1.0, 0);
+      // X:0, Y:0.7, Z:0 はQuest 2 CALIB調査結果(0,1,0) × 弓スケール0.7倍
+      this.nockOffset = new THREE.Vector3(0, 0.7, 0);
 
       // SphereGeometry をY軸2倍にスケールして楕円体（Ellipsoid）として使用
       // 弓エンティティの子として追加することで、弓の回転・位置に自動追従する
