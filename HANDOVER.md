@@ -28,10 +28,9 @@ index.html                      # 両手にweapon-controller
 
 ## 4. 現状と次の一手
 
-### ✅ コミット deb1ae9（最新）
-- **nockSphere楕円軸をX方向に変更**: `scale(1,2,1)` → `scale(2,1,1)`
-  - 弓は `rotation.set(PI/2, PI/2, PI)` のためローカルX軸が弓の長軸方向と推定
-  - ダメならZに変更（50%の確率でどちらか正解）
+### ✅ コミット aaec41f（最新）
+- **nockSphere楕円軸をZ軸に確定**: `scale(2,1,1)` → `scale(1,1,2)`
+  - X軸はテスト済みでハズレ → Z軸が弓ローカルの長軸方向
 
 ### CALIBシステムの設計（現行）
 - CALIB ON → 左手の弓を固定座標 `0 1.2 -1.7` に毎フレーム強制移動（tick()でoculus-touch-controlsに勝つ）

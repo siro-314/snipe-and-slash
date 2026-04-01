@@ -48,8 +48,8 @@ export function registerSwordComponent() {
 
       // 握り判定: Y軸方向に長いカプセル形で可視化
       // 位置オフセット: 弦のワールド座標からの相対補正値（調整モードで更新）
-      // X:0, Y:0.9, Z:0 はQuest 2 CALIB調査結果(0,1,0) × 弓スケール0.9倍
-      this.nockOffset = new THREE.Vector3(0, 0.9, 0);
+      // X:0, Y:0.7, Z:0 はCALIB調査結果(0,1,0) × 弓スケール0.7倍
+      this.nockOffset = new THREE.Vector3(0, 0.7, 0);
 
       // SphereGeometry をY軸2倍にスケールして楕円体（Ellipsoid）として使用
       // 弓エンティティの子として追加することで、弓の回転・位置に自動追従する
@@ -89,7 +89,7 @@ export function registerSwordComponent() {
         return;
       }
 
-      model.scale.set(0.9, 0.9, 0.9); // 弓形態のサイズを0.9倍に縮小
+      model.scale.set(1, 1, 1); // スケールはsetMode内で弓/剣ごとに切り替える
       model.rotation.set(Math.PI / 2, Math.PI / 2, Math.PI);
 
       model.traverse((node: any) => {
@@ -205,12 +205,14 @@ export function registerSwordComponent() {
       if (!this.modelLoaded) return;
 
       if (mode === 'bow') {
+        this.el.object3D.scale.set(0.7, 0.7, 0.7); // 弓形態のみ0.7倍
         if (this.upperBlade?.morphTargetInfluences) this.upperBlade.morphTargetInfluences[this.morphIndex] = 1;
         if (this.lowerBlade) this.lowerBlade.visible = true;
         if (this.string) this.string.visible = true;
         if (this.arrow) { this.arrow.visible = false; if (this.arrow.material) this.arrow.material.opacity = 0; }
         if (this.nockSphere) this.nockSphere.visible = true;
       } else {
+        this.el.object3D.scale.set(1, 1, 1); // 剣形態は等倍に戻す
         if (this.upperBlade?.morphTargetInfluences) this.upperBlade.morphTargetInfluences[this.morphIndex] = 0;
         if (this.lowerBlade) this.lowerBlade.visible = false;
         if (this.string) this.string.visible = false;
