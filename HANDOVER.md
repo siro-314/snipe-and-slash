@@ -28,12 +28,10 @@ index.html                      # 両手にweapon-controller
 
 ## 4. 現状と次の一手
 
-### ✅ コミット 71b88f7（最新）
-- **nockSphere を弓エンティティの子に変更**: `scene.add` → `this.el.object3D.add`
-  - 弓の回転が自動追従するため angle ズレが解消
-  - tick内でローカル座標更新 (`_updateNockSphereLocalPos`) に変更
-- **弓モデルを0.9倍**: `model.scale.set(0.9, 0.9, 0.9)` — `tryLoadModel`内で1回だけ設定（切り替えループで累積しない）
-- **nockOffset を0.9倍**: `(0, 0.9, 0)` に更新（CALIB結果(0,1,0) × 0.9）
+### ✅ コミット deb1ae9（最新）
+- **nockSphere楕円軸をX方向に変更**: `scale(1,2,1)` → `scale(2,1,1)`
+  - 弓は `rotation.set(PI/2, PI/2, PI)` のためローカルX軸が弓の長軸方向と推定
+  - ダメならZに変更（50%の確率でどちらか正解）
 
 ### CALIBシステムの設計（現行）
 - CALIB ON → 左手の弓を固定座標 `0 1.2 -1.7` に毎フレーム強制移動（tick()でoculus-touch-controlsに勝つ）
