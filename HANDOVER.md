@@ -33,7 +33,7 @@ index.html                      # 両手にweapon-controller
 - **位置**: `_getNockWorldPos()` のワールド座標をそのまま使用（元々正しかった）
 - **回転**: tick内で `el.object3D.getWorldQuaternion(nockSphere.quaternion)` をコピー
   - スケールの影響ゼロ・位置正確・角度追従、全て解決
-- **nockOffset**: `(0, 1.0, 0)` — スケール非依存の純粋な調査結果値
+- **nockOffset**: `(0, 0.7, 0)` — CALIB結果(0,1,0) × スケール0.7倍
 
 ### CALIBシステムの設計（現行）
 - CALIB ON → 左手の弓を固定座標 `0 1.2 -1.7` に毎フレーム強制移動（tick()でoculus-touch-controlsに勝つ）

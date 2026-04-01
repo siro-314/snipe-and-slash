@@ -395,8 +395,16 @@ export function registerSwordComponent() {
       if (this.mode === 'bow' && this.isGrabbingString && this.otherHand) {
         const handPos = this.otherHand.object3D.getWorldPosition(new THREE.Vector3());
         const nockPos = this._getNockWorldPos();
-        const dist = handPos.distanceTo(nockPos);
-        this.drawProgress = Math.min(Math.max(dist / 0.5, 0), 1);
+
+        // 弓のローカルY軸（後方向）への射影距離のみをdrawProgressに使用
+        // 純粋な距離だと横・前方向に動かしても引いたと判定されてしまうため
+        const bowWorldQuat = this.el.object3D.getWorldQuaternion(new THREE.Quaternion());
+        const bowLocalY = new THREE.Vector3(0, 1, 0).applyQuaternion(bowWorldQuat); // 弓ローカルY軸のワールド方向
+        const diff = handPos.clone().sub(nockPos);
+        const projection = diff.dot(bowLocalY); // Y軸プラス方向（引く方向）への射影
+        const drawDist = Math.max(projection, 0); // マイナス（逆方向）は0に丸める
+
+        this.drawProgress = Math.min(drawDist / 0.5, 1);
         this.updateMorphs(this.drawProgress);
         if (this.arrow?.material) this.arrow.material.opacity = this.drawProgress;
 
