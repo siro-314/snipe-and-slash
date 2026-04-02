@@ -28,6 +28,17 @@ index.html                      # 両手にweapon-controller
 
 ## 4. 現状と次の一手
 
+### ✅ コミット d439efb（最新）
+- **弓照準レティクル実装**（`_initAimReticle` / `_updateAimReticle`）
+  - 弓ローカルY-方向にRaycaster(far=100)で射線判定、ヒット点（なければ100m先）に照準を表示
+  - 外枠: TorusGeometry 白リング（drawProgressで白→水色に変化）
+  - 内側: CircleGeometry 水色40%半透明、`scale = 1 - drawProgress`（引ききりで0）
+  - シーンルートに配置（スケール影響なし）、弓方向に正対（setFromUnitVectors）
+  - 弓モード時のみ表示（setModeで切替）
+
+### ✅ コミット ae8c08c
+- drawProgress を弓ローカルY軸射影距離に変更（後方向のみカウント）
+
 ### ✅ コミット ae8c08c（最新）
 - **drawProgress 計算を弓ローカルY軸射影に変更**
   - 変更前: `handPos.distanceTo(nockPos)` → 純粋な3D距離なので横・前方向に動かしても引いたと判定されていた

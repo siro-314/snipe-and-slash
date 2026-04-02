@@ -132,13 +132,17 @@ export function registerSwordComponent() {
         this.el.sceneEl.object3D.children, true
       );
 
-      // aimGroup自身・nockSphere・照準リングを除外して最初のヒット点を使う
-      const excluded = new Set([this.aimGroup, this.nockSphere]);
+      // 弓エンティティ自体・aimGroup・nockSphere を祖先チェックで除外
+      const excludedRoots = new Set([
+        this.el.object3D, // 弓モデル全体（子メッシュも再帰的に除外）
+        this.aimGroup,
+        this.nockSphere,
+      ]);
       let hitPoint = null;
       for (const hit of intersects) {
         let obj = hit.object;
         let skip = false;
-        while (obj) { if (excluded.has(obj)) { skip = true; break; } obj = obj.parent; }
+        while (obj) { if (excludedRoots.has(obj)) { skip = true; break; } obj = obj.parent; }
         if (!skip) { hitPoint = hit.point; break; }
       }
 
