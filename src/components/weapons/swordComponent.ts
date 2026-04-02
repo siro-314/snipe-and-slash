@@ -337,6 +337,10 @@ export function registerSwordComponent() {
           arrowMesh.material.opacity = 1.0;
         }
         if (arrowMesh.morphTargetInfluences) arrowMesh.morphTargetInfluences[0] = 0;
+        // モデルのローカル長軸がX方向のため、Z方向（lookAt進行方向）に合わせる補正
+        // X長軸 → Z長軸: まずZ軸周りに90度回転してY長軸に、次にX軸周りに90度回転してZ長軸に
+        // ※ projectileComponentのlookAtには一切触らない（発射方向は変わらない）
+        arrowMesh.rotation.set(-Math.PI / 2, 0, Math.PI / 2);
       } else {
         // フォールバック: 細長いカプセルで矢を表現
         arrowMesh = new THREE.Mesh(
