@@ -28,6 +28,27 @@ index.html                      # 両手にweapon-controller
 
 ## 4. 現状と次の一手
 
+### ✅ コミット 599982c（最新）
+- **矢向き試行2回目**: `rotation.set(-PI/2, 0, 0)` — Y長軸→Z長軸を仮定
+  - 前回(-PI/2, 0, PI/2)で変化なし → モデル長軸はYの可能性が高い
+  - ダメなら次の候補: `(0, PI/2, 0)` `(PI/2, 0, 0)` `(0, -PI/2, 0)`
+  - **巻き戻し**: `git revert 599982c`
+
+### ✅ コミット 63734b2
+- **空中ダッシュ距離8m（倍）**＋**集中線エフェクト**
+  - 24本のラインをカメラの子として追加、dashDuration(150ms)でeaseInフェードアウト
+  - **巻き戻し**: `git revert 63734b2`
+
+### ✅ コミット f1d8728
+- ジャンプ・縮地実装
+
+## 5. 再開コマンド
+```bash
+cd ~/Desktop/snipe-and-slash && git log --oneline -5 && npm run dev
+```
+
+**本番URL**: https://playful-concha-6af59f.netlify.app
+
 ### ✅ コミット 08f9750（最新）
 - **矢メッシュ向き補正**（発射方向には一切影響なし）
   - 原因: モデルのローカル長軸がX方向 → lookAt(Z+)後もXを向いたまま

@@ -84,62 +84,69 @@ export function registerPlayerMovementComponent() {
     },
 
     // ── 集中線エフェクト ──────────────────────────────────────────────
-    // カメラ前方に放射状ラインを描画し、dashDuration後にフェードアウト
+    // 視界の端から中心へ収束する集中線を描画し、dashDuration後にフェードアウト
+    // 空中ダッシュ発動時のみ呼ばれる（tick内では呼ばれない）
     _showSpeedLines: function () {
-      const scene = this.el.sceneEl.object3D;
       const cam = this.cameraEl?.object3D;
       if (!cam) return;
 
-      const LINE_COUNT  = 24;   // 線の本数
-      const LINE_LEN    = 3.5;  // 線の長さ (m)
-      const INNER_R     = 0.3;  // 中心から始まる距離 (m)
-      const SPREAD      = 0.55; // 画角の広がり（radians, 視野の端まで）
-      const duration    = this.data.dashDuration;
+      const LINE_COUNT = 24;   // 線の本数
+      // カメラ近平面の少し前 (z=-0.1) から遠い位置 (z=-0.5) へ向かう
+      // XY は視界の端（tanFOV相当）から中心(0,0)へ収束
+      const NEAR_Z    = -0.15; // 収束点（中心付近）
+      const FAR_Z     = -0.08; // 開始点（視界の端側）
+      // 視野角72度相当のtanで端を定義（Quest2 FOV≈90°なのでやや内側）
+      const EDGE_R    = 0.55;  // FAR_Z での端のXY半径
+      const duration  = this.data.dashDuration;
 
-      // グループをカメラのローカル座標で作成
       const group = new THREE.Group();
+      // レンダリング順を最前面に
+      group.renderOrder = 999;
 
+      // マテリアルは1つ共有（opacityをgroupレベルで制御するため子は同一インスタンスを使う）
+      // Three.jsではGroupのopacityは直接ないのでmaterialを1つ共有して一括変更
       const mat = new THREE.LineBasicMaterial({
-        color: 0xffffff, transparent: true, opacity: 0.85,
-        depthTest: false, depthWrite: false
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.9,
+        depthTest: false,
+        depthWrite: false,
       });
 
       for (let i = 0; i < LINE_COUNT; i++) {
-        const angle = (i / LINE_COUNT) * Math.PI * 2;
-        // ランダムなばらつきで自然な集中線に
-        const r     = SPREAD * (0.5 + Math.random() * 0.5);
-        const ox    = Math.cos(angle) * r;
-        const oy    = Math.sin(angle) * r;
-        // カメラローカル: x=横, y=縦, z=-前方
-        const startX = Math.cos(angle) * INNER_R * 0.1;
-        const startY = Math.sin(angle) * INNER_R * 0.1;
-        const endX   = ox * (INNER_R + LINE_LEN * (0.7 + Math.random() * 0.3));
-        const endY   = oy * (INNER_R + LINE_LEN * (0.7 + Math.random() * 0.3));
+        const angle  = (i / LINE_COUNT) * Math.PI * 2;
+        // 端の位置（ランダムな半径で自然なばらつき）
+        const r      = EDGE_R * (0.6 + Math.random() * 0.4);
+        const ex     = Math.cos(angle) * r;
+        const ey     = Math.sin(angle) * r;
+        // 収束点は中心付近（小さなランダムオフセット）
+        const cx     = (Math.random() - 0.5) * 0.04;
+        const cy     = (Math.random() - 0.5) * 0.04;
 
+        // 端(FAR_Z) → 中心(NEAR_Z) の向きに線を引く（視界端から中心へ収束）
         const geo = new THREE.BufferGeometry().setFromPoints([
-          new THREE.Vector3(startX, startY, -INNER_R),
-          new THREE.Vector3(endX,   endY,   -(INNER_R + LINE_LEN))
+          new THREE.Vector3(ex, ey, FAR_Z),
+          new THREE.Vector3(cx, cy, NEAR_Z),
         ]);
-        group.add(new THREE.Line(geo, mat.clone()));
+        group.add(new THREE.Line(geo, mat)); // 同一materialを共有
       }
 
-      // カメラの子として追加（カメラに追従）
       cam.add(group);
 
-      // フェードアウトして削除
+      // フェードアウトして自己削除
       const startTime = performance.now();
       const fade = () => {
         const elapsed = performance.now() - startTime;
         const t = Math.min(elapsed / duration, 1);
-        // easeIn で素早く消える
-        const opacity = 0.85 * (1 - t * t);
-        group.children.forEach((line: any) => {
-          (line.material as any).opacity = opacity;
-        });
+        // easeOutQuad: 最初は不透明、急速にフェード
+        mat.opacity = 0.9 * (1 - t * t);
         if (t < 1) {
           requestAnimationFrame(fade);
         } else {
           cam.remove(group);
+          // マテリアルとgeometryを解放
+          group.children.forEach((line: any) => line.geometry.dispose());
+          mat.dispose();
         }
       };
       requestAnimationFrame(fade);
