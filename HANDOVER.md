@@ -28,6 +28,33 @@ index.html                      # 両手にweapon-controller
 
 ## 4. 現状と次の一手
 
+### ✅ コミット 08f9750（最新）
+- **矢メッシュ向き補正**（発射方向には一切影響なし）
+  - 原因: モデルのローカル長軸がX方向 → lookAt(Z+)後もXを向いたまま
+  - 修正: arrowMesh に `rotation.set(-PI/2, 0, PI/2)` を焼き込みZ長軸に変換
+  - projectileComponent の lookAt は触っていないので発射方向は完全に独立
+  - もし向きがまだズレていたら `rotation.set` の値だけ変えればいい（`-PI/2, 0, 0` や `0, 0, PI/2` など）
+  - **巻き戻したい場合**: `git revert 08f9750`（このコミット単独で元に戻せる）
+
+### ✅ コミット f1d8728
+- **ジャンプ・縮地実装**（`playerMovementComponent.ts` 新規追加）
+  - 地上でAボタン → ジャンプ（jumpForce=6.0, gravity=16.0）
+  - 空中でAボタン → 縮地（カメラforward方向に4m、150msでeaseOut）
+  - 縮地は1回限り、着地でリセット
+  - rigに `player-movement` 属性を付与
+  - 左手Xボタンも同じ動作
+
+### ✅ コミット 7285a52
+- Raycaster自己衝突バグ修正
+
+### ✅ コミット d439efb
+- 弓照準レティクル実装
+
+## 5. 再開コマンド
+```bash
+cd ~/Desktop/snipe-and-slash && git log --oneline -5 && npm run dev
+```
+
 ### ✅ コミット 7285a52（最新）
 - **Raycaster自己衝突バグ修正**
   - 除外リストに `this.el.object3D`（弓エンティティのルート）を追加

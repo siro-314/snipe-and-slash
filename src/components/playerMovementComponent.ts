@@ -19,7 +19,7 @@ export function registerPlayerMovementComponent() {
       jumpForce:    { type: 'number', default: 6.0 },   // ジャンプ初速 (m/s)
       gravity:      { type: 'number', default: 16.0 },  // 重力加速度 (m/s²)
       groundY:      { type: 'number', default: 0.0 },   // 地面Y座標
-      dashDistance: { type: 'number', default: 4.0 },   // 縮地移動距離 (m)
+      dashDistance: { type: 'number', default: 8.0 },   // 縮地移動距離 (m)
       dashDuration: { type: 'number', default: 150 },   // 縮地にかける時間 (ms)
     },
 
@@ -69,16 +69,80 @@ export function registerPlayerMovementComponent() {
       const camQuat = this.cameraEl.object3D.getWorldQuaternion(new THREE.Quaternion());
       const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camQuat);
       forward.y = 0;
-      if (forward.length() < 0.001) return; // 真上/真下を向いてたら無効
+      if (forward.length() < 0.001) return;
       forward.normalize();
 
       this.dashFrom.copy(this.el.object3D.position);
       this.dashTo.copy(this.dashFrom).addScaledVector(forward, this.data.dashDistance);
-      // 縮地中もY座標は物理に従うので、dashTo.yは出発点のまま（tick内で上書き）
       this.dashTo.y = this.dashFrom.y;
 
       this.isDashing    = true;
       this.dashProgress = 0;
+
+      // 集中線エフェクト発動
+      this._showSpeedLines();
+    },
+
+    // ── 集中線エフェクト ──────────────────────────────────────────────
+    // カメラ前方に放射状ラインを描画し、dashDuration後にフェードアウト
+    _showSpeedLines: function () {
+      const scene = this.el.sceneEl.object3D;
+      const cam = this.cameraEl?.object3D;
+      if (!cam) return;
+
+      const LINE_COUNT  = 24;   // 線の本数
+      const LINE_LEN    = 3.5;  // 線の長さ (m)
+      const INNER_R     = 0.3;  // 中心から始まる距離 (m)
+      const SPREAD      = 0.55; // 画角の広がり（radians, 視野の端まで）
+      const duration    = this.data.dashDuration;
+
+      // グループをカメラのローカル座標で作成
+      const group = new THREE.Group();
+
+      const mat = new THREE.LineBasicMaterial({
+        color: 0xffffff, transparent: true, opacity: 0.85,
+        depthTest: false, depthWrite: false
+      });
+
+      for (let i = 0; i < LINE_COUNT; i++) {
+        const angle = (i / LINE_COUNT) * Math.PI * 2;
+        // ランダムなばらつきで自然な集中線に
+        const r     = SPREAD * (0.5 + Math.random() * 0.5);
+        const ox    = Math.cos(angle) * r;
+        const oy    = Math.sin(angle) * r;
+        // カメラローカル: x=横, y=縦, z=-前方
+        const startX = Math.cos(angle) * INNER_R * 0.1;
+        const startY = Math.sin(angle) * INNER_R * 0.1;
+        const endX   = ox * (INNER_R + LINE_LEN * (0.7 + Math.random() * 0.3));
+        const endY   = oy * (INNER_R + LINE_LEN * (0.7 + Math.random() * 0.3));
+
+        const geo = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(startX, startY, -INNER_R),
+          new THREE.Vector3(endX,   endY,   -(INNER_R + LINE_LEN))
+        ]);
+        group.add(new THREE.Line(geo, mat.clone()));
+      }
+
+      // カメラの子として追加（カメラに追従）
+      cam.add(group);
+
+      // フェードアウトして削除
+      const startTime = performance.now();
+      const fade = () => {
+        const elapsed = performance.now() - startTime;
+        const t = Math.min(elapsed / duration, 1);
+        // easeIn で素早く消える
+        const opacity = 0.85 * (1 - t * t);
+        group.children.forEach((line: any) => {
+          (line.material as any).opacity = opacity;
+        });
+        if (t < 1) {
+          requestAnimationFrame(fade);
+        } else {
+          cam.remove(group);
+        }
+      };
+      requestAnimationFrame(fade);
     },
 
     tick: function (_time: number, deltaMs: number) {
