@@ -16,3 +16,6 @@ export { registerEnemyDroneBlackComponent } from './enemies/enemyDroneBlackCompo
 
 // コントローラーコンポーネント
 export { registerWeaponControllerComponent } from './weaponControllerComponent';
+
+// プレイヤー移動コンポーネント
+export { registerPlayerMovementComponent } from './playerMovementComponent';

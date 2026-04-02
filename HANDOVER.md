@@ -28,7 +28,10 @@ index.html                      # 両手にweapon-controller
 
 ## 4. 現状と次の一手
 
-### ✅ コミット d439efb（最新）
+### ✅ コミット 7285a52（最新）
+- **Raycaster自己衝突バグ修正**
+  - 除外リストに `this.el.object3D`（弓エンティティのルート）を追加
+  - 祖先チェックで子メッシュも再帰的に除外されるため、弓モデル全体がRaycastの対象外に
 - **弓照準レティクル実装**（`_initAimReticle` / `_updateAimReticle`）
   - 弓ローカルY-方向にRaycaster(far=100)で射線判定、ヒット点（なければ100m先）に照準を表示
   - 外枠: TorusGeometry 白リング（drawProgressで白→水色に変化）

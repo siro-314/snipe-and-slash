@@ -37,7 +37,8 @@ import {
   registerEnemyBulletComponent,
   registerEnemyTurretComponent,
   registerEnemyDroneBlackComponent,
-  registerWeaponControllerComponent
+  registerWeaponControllerComponent,
+  registerPlayerMovementComponent
 } from './components';
 
 // デバッグコンポーネント
@@ -103,6 +104,9 @@ registerEnemyDroneBlackComponent(updateHUD, checkGameClear);
 
 // コントローラーコンポーネント
 registerWeaponControllerComponent();
+
+// プレイヤー移動コンポーネント（ジャンプ・縮地）
+registerPlayerMovementComponent();
 
 // デバッグコンポーネント（弓の状態可視化）
 registerBowDebugComponent();
