@@ -5,13 +5,15 @@
  *
  * 操作:
  *   - 地上でAボタン → ジャンプ
- *   - 空中でAボタン → 縮地（カメラ向き方向へ瞬間移動、1回限り）
+ *   - 空中でAボタン → 縮地（左スティック入力があればその方向、なければカメラ向き）
  *
  * 設計:
  *   - rigエンティティに付与
  *   - movement-controlsと共存（Y座標のみ独自管理）
- *   - 縮地はカメラのforward方向（水平成分のみ）に dashDistance 移動
+ *   - 縮地はスティック入力 or カメラforwardの水平方向に dashDistance 移動
  *   - 地面判定は Y <= GROUND_Y で簡易管理
+ *   - 集中線エフェクトはrequestAnimationFrameを使わずtick内で管理（XR環境でのバグ回避）
+ *   - FOVはハードウェアから実際に取得して画面端の座標を計算
  */
 export function registerPlayerMovementComponent() {
   AFRAME.registerComponent('player-movement', {
@@ -26,27 +28,46 @@ export function registerPlayerMovementComponent() {
     init: function () {
       this.verticalVelocity = 0;
       this.isGrounded = true;
-      this.canDash = false;      // 空中でダッシュ可能か（ジャンプ後に1回だけ）
+      this.canDash = false;
 
       // 縮地アニメーション用
       this.isDashing    = false;
-      this.dashProgress = 0;    // 0〜1
+      this.dashProgress = 0;
       this.dashFrom     = new THREE.Vector3();
       this.dashTo       = new THREE.Vector3();
 
-      // カメラエンティティ参照（forward方向取得用）
+      // カメラエンティティ参照
       this.cameraEl = this.el.querySelector('[camera]');
 
-      // 右手コントローラーのAボタンを購読
+      // スティック入力を保持（縮地方向決定に使用）
+      // x: 左右, y: 前後（A-Frameのthumbstickmoved準拠）
+      this.stickInput = { x: 0, y: 0 };
+
+      // 集中線エフェクト管理（tick内で処理、rAFは使わない）
+      this.speedLineGroup   = null;
+      this.speedLineMat     = null;
+      this.speedLineElapsed = 0;   // 経過ms
+      this.speedLineDur     = 0;   // 総持続ms（dashDurationと同期）
+
+      // 右手: Aボタン
       const rightHand = document.getElementById('rightHand');
       if (rightHand) {
         rightHand.addEventListener('abuttondown', this._onAButton.bind(this));
+        rightHand.addEventListener('thumbstickmoved', this._onStick.bind(this));
       }
-      // 左手コントローラーのXボタンも同じ動作（任意）
+      // 左手: Xボタン + スティック
       const leftHand = document.getElementById('leftHand');
       if (leftHand) {
         leftHand.addEventListener('xbuttondown', this._onAButton.bind(this));
+        leftHand.addEventListener('thumbstickmoved', this._onStick.bind(this));
       }
+    },
+
+    _onStick: function (evt: any) {
+      // A-Frameのthumbstickmovedはdetail.x, detail.yで[-1,1]の値を返す
+      const { x, y } = evt.detail;
+      this.stickInput.x = x;
+      this.stickInput.y = y;
     },
 
     _onAButton: function () {
@@ -65,96 +86,156 @@ export function registerPlayerMovementComponent() {
     _startDash: function () {
       if (!this.cameraEl) return;
 
-      // カメラのforward方向（水平成分のみ）
+      // ── 縮地方向の決定 ──────────────────────────────────────────────
+      // スティックが倒されていれば（閾値0.3）その方向、なければカメラforward
+      const STICK_THRESHOLD = 0.3;
+      const sx = this.stickInput.x;
+      const sy = this.stickInput.y; // A-Frame: y+ = 上 = コントローラー前方 → ワールド前方
+
       const camQuat = this.cameraEl.object3D.getWorldQuaternion(new THREE.Quaternion());
-      const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camQuat);
-      forward.y = 0;
-      if (forward.length() < 0.001) return;
-      forward.normalize();
+      let dashDir: any;
+
+      if (Math.abs(sx) > STICK_THRESHOLD || Math.abs(sy) > STICK_THRESHOLD) {
+        // スティック入力をカメラの水平向きで回転させてワールド方向に変換
+        // A-Frameのy入力: -1=前、+1=後ろ なので前方をZ-方向にマップ
+        const stickLocal = new THREE.Vector3(sx, 0, -sy); // ローカル前方=Z-
+        stickLocal.normalize();
+        dashDir = stickLocal.applyQuaternion(camQuat);
+        dashDir.y = 0;
+        if (dashDir.length() < 0.001) {
+          dashDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camQuat);
+          dashDir.y = 0;
+        }
+        dashDir.normalize();
+      } else {
+        // カメラforward方向（水平成分のみ）
+        dashDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camQuat);
+        dashDir.y = 0;
+        if (dashDir.length() < 0.001) return;
+        dashDir.normalize();
+      }
 
       this.dashFrom.copy(this.el.object3D.position);
-      this.dashTo.copy(this.dashFrom).addScaledVector(forward, this.data.dashDistance);
+      this.dashTo.copy(this.dashFrom).addScaledVector(dashDir, this.data.dashDistance);
       this.dashTo.y = this.dashFrom.y;
 
       this.isDashing    = true;
       this.dashProgress = 0;
 
-      // 集中線エフェクト発動
-      this._showSpeedLines();
+      // 集中線エフェクト開始（tick管理）
+      this._initSpeedLines();
     },
 
-    // ── 集中線エフェクト ──────────────────────────────────────────────
-    // 視界の端から中心へ収束する集中線を描画し、dashDuration後にフェードアウト
-    // 空中ダッシュ発動時のみ呼ばれる（tick内では呼ばれない）
-    _showSpeedLines: function () {
+    // ── 集中線エフェクト：初期化（ダッシュ発動時に1回だけ呼ぶ） ──────────
+    // tick内でフェードアウトするのでrequestAnimationFrameは使わない（XR環境安全）
+    // FOVはハードウェアから実際に取得し、画面の80%位置を端として集中線を配置する
+    _initSpeedLines: function () {
       const cam = this.cameraEl?.object3D;
       if (!cam) return;
 
-      const LINE_COUNT = 24;   // 線の本数
-      // カメラ近平面の少し前 (z=-0.1) から遠い位置 (z=-0.5) へ向かう
-      // XY は視界の端（tanFOV相当）から中心(0,0)へ収束
-      const NEAR_Z    = -0.15; // 収束点（中心付近）
-      const FAR_Z     = -0.08; // 開始点（視界の端側）
-      // 視野角72度相当のtanで端を定義（Quest2 FOV≈90°なのでやや内側）
-      const EDGE_R    = 0.55;  // FAR_Z での端のXY半径
-      const duration  = this.data.dashDuration;
+      // 前の集中線が残っていれば即削除（増殖防止）
+      this._removeSpeedLines();
+
+      // ── FOVから画面端の座標を計算 ──────────────────────────────────
+      // WebXR環境: renderer.xr.getCamera() からProjectionMatrixを取得してtanFOVを逆算
+      // 非XR環境: scene.cameraのfovプロパティを使用
+      // どちらも「ニア平面z=-1での端の座標」を求めてEDGE_RATIOで内側に絞る
+      const EDGE_RATIO  = 0.80; // 画面端の何割に線を出すか（0.8=端から20%内側まで）
+      const LINE_COUNT  = 28;
+      const NEAR_Z      = -0.12; // 収束点のZ（カメラローカル、小さいほど近い）
+      const FAR_Z       = -0.10; // 開始点のZ（収束点より少し遠い）
+      const duration    = this.data.dashDuration;
+
+      let tanHalfFovY = Math.tan((75 / 2) * Math.PI / 180); // デフォルト75°
+      let aspectRatio = 1.0;
+
+      try {
+        const renderer = (this.el.sceneEl as any).renderer;
+        if (renderer?.xr?.isPresenting) {
+          // XRカメラのprojectionMatrixからtanFOVを逆算
+          const xrCam = renderer.xr.getCamera();
+          const pm = xrCam.projectionMatrix;
+          // projectionMatrix[5] = 1/tan(halfFovY), projectionMatrix[0] = 1/(aspect*tan(halfFovY))
+          tanHalfFovY = 1.0 / pm.elements[5];
+          aspectRatio  = pm.elements[5] / pm.elements[0];
+        } else {
+          const sceneCamera = (this.el.sceneEl as any).camera;
+          if (sceneCamera?.fov) {
+            tanHalfFovY = Math.tan((sceneCamera.fov / 2) * Math.PI / 180);
+            aspectRatio  = sceneCamera.aspect ?? 1.0;
+          }
+        }
+      } catch (_) { /* fallback値を使う */ }
+
+      // z=-1平面での端の半幅・半高さ（比例してFAR_Zにスケール）
+      const edgeH = tanHalfFovY * Math.abs(FAR_Z) * EDGE_RATIO;
+      const edgeW = edgeH * aspectRatio;
 
       const group = new THREE.Group();
-      // レンダリング順を最前面に
       group.renderOrder = 999;
 
-      // マテリアルは1つ共有（opacityをgroupレベルで制御するため子は同一インスタンスを使う）
-      // Three.jsではGroupのopacityは直接ないのでmaterialを1つ共有して一括変更
       const mat = new THREE.LineBasicMaterial({
         color: 0xffffff,
         transparent: true,
-        opacity: 0.9,
+        opacity: 0.95,
         depthTest: false,
         depthWrite: false,
       });
 
       for (let i = 0; i < LINE_COUNT; i++) {
-        const angle  = (i / LINE_COUNT) * Math.PI * 2;
-        // 端の位置（ランダムな半径で自然なばらつき）
-        const r      = EDGE_R * (0.6 + Math.random() * 0.4);
-        const ex     = Math.cos(angle) * r;
-        const ey     = Math.sin(angle) * r;
-        // 収束点は中心付近（小さなランダムオフセット）
-        const cx     = (Math.random() - 0.5) * 0.04;
-        const cy     = (Math.random() - 0.5) * 0.04;
+        const angle = (i / LINE_COUNT) * Math.PI * 2;
+        // 楕円形の端（アスペクト比を反映）
+        const r   = 0.7 + Math.random() * 0.3;
+        const ex  = Math.cos(angle) * edgeW * r;
+        const ey  = Math.sin(angle) * edgeH * r;
+        // 収束点は中心付近の微小オフセット
+        const cx  = (Math.random() - 0.5) * 0.015;
+        const cy  = (Math.random() - 0.5) * 0.015;
 
-        // 端(FAR_Z) → 中心(NEAR_Z) の向きに線を引く（視界端から中心へ収束）
         const geo = new THREE.BufferGeometry().setFromPoints([
           new THREE.Vector3(ex, ey, FAR_Z),
           new THREE.Vector3(cx, cy, NEAR_Z),
         ]);
-        group.add(new THREE.Line(geo, mat)); // 同一materialを共有
+        group.add(new THREE.Line(geo, mat));
       }
 
       cam.add(group);
+      this.speedLineGroup   = group;
+      this.speedLineMat     = mat;
+      this.speedLineElapsed = 0;
+      this.speedLineDur     = duration;
+    },
 
-      // フェードアウトして自己削除
-      const startTime = performance.now();
-      const fade = () => {
-        const elapsed = performance.now() - startTime;
-        const t = Math.min(elapsed / duration, 1);
-        // easeOutQuad: 最初は不透明、急速にフェード
-        mat.opacity = 0.9 * (1 - t * t);
-        if (t < 1) {
-          requestAnimationFrame(fade);
-        } else {
-          cam.remove(group);
-          // マテリアルとgeometryを解放
-          group.children.forEach((line: any) => line.geometry.dispose());
-          mat.dispose();
-        }
-      };
-      requestAnimationFrame(fade);
+    // ── 集中線の強制削除（着地・再ダッシュ・コンポーネント削除時に呼ぶ） ──
+    _removeSpeedLines: function () {
+      if (this.speedLineGroup) {
+        const cam = this.cameraEl?.object3D;
+        cam?.remove(this.speedLineGroup);
+        this.speedLineGroup.children.forEach((line: any) => line.geometry.dispose());
+        this.speedLineMat?.dispose();
+        this.speedLineGroup = null;
+        this.speedLineMat   = null;
+      }
+    },
+
+    remove: function () {
+      // コンポーネント削除時にクリーンアップ
+      this._removeSpeedLines();
     },
 
     tick: function (_time: number, deltaMs: number) {
-      const dt = deltaMs / 1000; // 秒に変換
+      const dt = deltaMs / 1000;
       const pos = this.el.object3D.position;
+
+      // ── 集中線フェードアウト（tick内で管理、rAF不使用） ──
+      if (this.speedLineGroup && this.speedLineMat) {
+        this.speedLineElapsed += deltaMs;
+        const t = Math.min(this.speedLineElapsed / this.speedLineDur, 1);
+        this.speedLineMat.opacity = 0.95 * (1 - t * t); // easeOutQuad
+        if (t >= 1) {
+          this._removeSpeedLines();
+        }
+      }
 
       // ── 縮地アニメーション（水平移動） ──
       if (this.isDashing) {
@@ -163,7 +244,6 @@ export function registerPlayerMovementComponent() {
           this.dashProgress = 1;
           this.isDashing = false;
         }
-        // easeOutQuad で滑らかに減速
         const t = 1 - (1 - this.dashProgress) * (1 - this.dashProgress);
         pos.x = this.dashFrom.x + (this.dashTo.x - this.dashFrom.x) * t;
         pos.z = this.dashFrom.z + (this.dashTo.z - this.dashFrom.z) * t;
@@ -174,13 +254,13 @@ export function registerPlayerMovementComponent() {
         this.verticalVelocity -= this.data.gravity * dt;
         pos.y += this.verticalVelocity * dt;
 
-        // 地面に着地
         if (pos.y <= this.data.groundY) {
           pos.y = this.data.groundY;
           this.verticalVelocity = 0;
           this.isGrounded = true;
-          this.canDash   = false;
+          this.canDash    = false;
           this.isDashing  = false;
+          this._removeSpeedLines(); // 着地時も確実にクリーンアップ
         }
       }
     }
