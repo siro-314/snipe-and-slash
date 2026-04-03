@@ -129,41 +129,52 @@ export function registerPlayerMovementComponent() {
     },
 
     // ── 集中線エフェクト：初期化 ──────────────────────────────────────
-    // カメラの子としてドーナツ型（RingGeometry）Meshを追加する。
-    // カメラの子にすることで両目に正しくレンダリングされる（WebXR VR正攻法）。
-    // 外側を白・半透明にして画面端に白いフラッシュを出す。
-    // depthTest:falseで常に最前面に表示。
+    // カメラの子としてラインをアタッチするVR正攻法。
+    // ラインはカメラのローカル空間で「画面端の点 → 中心付近」に向かう放射線。
+    // RingGeometryと同じ方式なのでWebXR両目レンダリングで正しく表示される。
     _initSpeedLines: function () {
       const cam = this.cameraEl?.object3D;
       if (!cam) return;
 
-      // 前のエフェクトが残っていれば即削除
       this._removeSpeedLines();
 
-      // カメラの直前に置くZ距離（小さいほどFOVを大きく覆う）
-      const Z_DIST    = -0.5;   // カメラから0.5m前
-      // RingGeometryの内径・外径（この距離でのFOVをカバーするよう調整）
-      // Quest2のFOV≈90°: tan(45°)*0.5 ≈ 0.5m → 外径0.8でほぼ全画面、内径0.4で中心を透過
-      const innerR    = 0.38;   // 内径（中心の透明部分）
-      const outerR    = 1.2;    // 外径（画面外まで確実にカバー）
-      const segments  = 64;
+      const LINE_COUNT = 32;
+      const Z          = -0.5;    // カメラから0.5m前の平面に描く
+      // Quest2 FOV≒90°: tan(45°)*0.5 = 0.5m が画面端
+      // 外端は画面外まで（0.7）、内端は中央付近（0.05）
+      const OUTER_R    = 0.7;    // 線の始点（画面端より外側）
+      const INNER_R    = 0.05;   // 線の終点（中央付近）
 
-      const geo = new THREE.RingGeometry(innerR, outerR, segments);
-      const mat = new THREE.MeshBasicMaterial({
-        color:       0xffffff,
+      const positions: number[] = [];
+
+      for (let i = 0; i < LINE_COUNT; i++) {
+        // 少しランダムに角度をばらつかせて自然な集中線に
+        const angle  = (i / LINE_COUNT) * Math.PI * 2 + (Math.random() - 0.5) * 0.18;
+        const rOuter = OUTER_R * (0.75 + Math.random() * 0.25); // 外端のばらつき
+        const rInner = INNER_R * (0.5 + Math.random() * 0.5);   // 内端のばらつき
+
+        // 始点（外端）
+        positions.push(Math.cos(angle) * rOuter, Math.sin(angle) * rOuter, Z);
+        // 終点（中心付近）
+        positions.push(Math.cos(angle) * rInner, Math.sin(angle) * rInner, Z);
+      }
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+
+      const mat = new THREE.LineBasicMaterial({
+        color:      0xffffff,
         transparent: true,
-        opacity:     0.85,
-        side:        THREE.FrontSide,
-        depthTest:   false,
-        depthWrite:  false,
+        opacity:    0.9,
+        depthTest:  false,
+        depthWrite: false,
       });
 
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(0, 0, Z_DIST);
-      mesh.renderOrder = 999;
+      const lines = new THREE.LineSegments(geo, mat);
+      lines.renderOrder = 999;
 
-      cam.add(mesh);
-      this.vignetteRing     = mesh;
+      cam.add(lines);
+      this.vignetteRing     = lines;
       this.vignetteMat      = mat;
       this.speedLineElapsed = 0;
       this.speedLineDur     = this.data.dashDuration;
