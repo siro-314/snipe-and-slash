@@ -153,7 +153,7 @@ export function registerPlayerMovementComponent() {
         64     // segments
       );
       const mat = new THREE.MeshBasicMaterial({
-        color:       0xffffff,
+        color:       0x000000,
         transparent: true,
         opacity:     0.75,
         depthTest:   false,
