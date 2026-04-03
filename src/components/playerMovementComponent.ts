@@ -43,11 +43,13 @@ export function registerPlayerMovementComponent() {
       // x: 左右, y: 前後（A-Frameのthumbstickmoved準拠）
       this.stickInput = { x: 0, y: 0 };
 
-      // 集中線エフェクト管理（tick内で処理、rAFは使わない）
-      this.speedLineGroup   = null;
-      this.speedLineMat     = null;
-      this.speedLineElapsed = 0;   // 経過ms
-      this.speedLineDur     = 0;   // 総持続ms（dashDurationと同期）
+      // 集中線エフェクト管理（2D HTMLCanvas方式、tick内でフェード）
+      this.speedLineCanvas  = document.getElementById('speedline-overlay') as HTMLCanvasElement | null;
+      this.speedLineElapsed = 0;
+      this.speedLineDur     = 0;
+      this.speedLineActive  = false;
+      // 線の定義を一度だけ生成して使い回す（毎フレームの乱数を避けるため）
+      this.speedLineSeeds   = [] as Array<{ angle: number; r: number; cx: number; cy: number }>;
 
       // 右手: Aボタン
       const rightHand = document.getElementById('rightHand');
@@ -127,101 +129,47 @@ export function registerPlayerMovementComponent() {
     },
 
     // ── 集中線エフェクト：初期化（ダッシュ発動時に1回だけ呼ぶ） ──────────
-    // tick内でフェードアウトするのでrequestAnimationFrameは使わない（XR環境安全）
-    // FOVはハードウェアから実際に取得し、画面の80%位置を端として集中線を配置する
+    // HTMLCanvasに2Dで描画するのでThree.js / WebXRのカメラ座標系と完全に無関係。
+    // 画面端＝canvasの端なので位置がズレることがない。
     _initSpeedLines: function () {
-      const cam = this.cameraEl?.object3D;
-      if (!cam) return;
+      const canvas = this.speedLineCanvas as HTMLCanvasElement;
+      if (!canvas) return;
 
-      // 前の集中線が残っていれば即削除（増殖防止）
-      this._removeSpeedLines();
+      // canvas サイズをウィンドウに合わせる
+      canvas.width  = window.innerWidth;
+      canvas.height = window.innerHeight;
 
-      // ── FOVから画面端の座標を計算 ──────────────────────────────────
-      // WebXR環境: renderer.xr.getCamera() からProjectionMatrixを取得してtanFOVを逆算
-      // 非XR環境: scene.cameraのfovプロパティを使用
-      // どちらも「ニア平面z=-1での端の座標」を求めてEDGE_RATIOで内側に絞る
-      const EDGE_RATIO  = 0.80; // 画面端の何割に線を出すか（0.8=画面端の80%位置）
-      const LINE_COUNT  = 28;
-      // z値は「計算用の投影面」として使う。depthTestオフなので実際の描画位置は関係ない。
-      // tanFOV * |FAR_Z| で端の座標が決まるので、FAR_Z を大きくするほど端が広がる。
-      const FAR_Z       = -1.0;  // 開始点Z（端の座標計算基準。大きいほど端に広がる）
-      const NEAR_Z      = -0.5;  // 収束点Z（中心に向かう方向）
-      const duration    = this.data.dashDuration;
+      const LINE_COUNT = 32;
+      const EDGE_RATIO = 0.82; // 画面端の何割の位置から線を開始するか
 
-      let tanHalfFovY = Math.tan((75 / 2) * Math.PI / 180); // デフォルト75°
-      let aspectRatio = 1.0;
-
-      try {
-        const renderer = (this.el.sceneEl as any).renderer;
-        if (renderer?.xr?.isPresenting) {
-          // XRカメラのprojectionMatrixからtanFOVを逆算
-          const xrCam = renderer.xr.getCamera();
-          const pm = xrCam.projectionMatrix;
-          // projectionMatrix[5] = 1/tan(halfFovY), projectionMatrix[0] = 1/(aspect*tan(halfFovY))
-          tanHalfFovY = 1.0 / pm.elements[5];
-          aspectRatio  = pm.elements[5] / pm.elements[0];
-        } else {
-          const sceneCamera = (this.el.sceneEl as any).camera;
-          if (sceneCamera?.fov) {
-            tanHalfFovY = Math.tan((sceneCamera.fov / 2) * Math.PI / 180);
-            aspectRatio  = sceneCamera.aspect ?? 1.0;
-          }
-        }
-      } catch (_) { /* fallback値を使う */ }
-
-      // z=-1平面での端の半幅・半高さ（比例してFAR_Zにスケール）
-      const edgeH = tanHalfFovY * Math.abs(FAR_Z) * EDGE_RATIO;
-      const edgeW = edgeH * aspectRatio;
-
-      const group = new THREE.Group();
-      group.renderOrder = 999;
-
-      const mat = new THREE.LineBasicMaterial({
-        color: 0xffffff,
-        transparent: true,
-        opacity: 0.95,
-        depthTest: false,
-        depthWrite: false,
-      });
-
+      // 線ごとのランダムな形状をシードとして保存（tick内で毎回再計算しない）
+      this.speedLineSeeds = [];
       for (let i = 0; i < LINE_COUNT; i++) {
-        const angle = (i / LINE_COUNT) * Math.PI * 2;
-        // 楕円形の端（アスペクト比を反映）
-        const r   = 0.7 + Math.random() * 0.3;
-        const ex  = Math.cos(angle) * edgeW * r;
-        const ey  = Math.sin(angle) * edgeH * r;
-        // 収束点は中心付近の微小オフセット
-        const cx  = (Math.random() - 0.5) * 0.015;
-        const cy  = (Math.random() - 0.5) * 0.015;
-
-        const geo = new THREE.BufferGeometry().setFromPoints([
-          new THREE.Vector3(ex, ey, FAR_Z),
-          new THREE.Vector3(cx, cy, NEAR_Z),
-        ]);
-        group.add(new THREE.Line(geo, mat));
+        this.speedLineSeeds.push({
+          angle: (i / LINE_COUNT) * Math.PI * 2 + (Math.random() - 0.5) * 0.15,
+          r:     EDGE_RATIO + Math.random() * (1.0 - EDGE_RATIO), // EDGE_RATIO〜1.0の範囲
+          cx:    (Math.random() - 0.5) * 8,  // 収束点の微小オフセット(px)
+          cy:    (Math.random() - 0.5) * 8,
+        });
       }
 
-      cam.add(group);
-      this.speedLineGroup   = group;
-      this.speedLineMat     = mat;
+      this.speedLineActive  = true;
       this.speedLineElapsed = 0;
-      this.speedLineDur     = duration;
+      this.speedLineDur     = this.data.dashDuration;
     },
 
-    // ── 集中線の強制削除（着地・再ダッシュ・コンポーネント削除時に呼ぶ） ──
+    // ── 集中線の強制クリア ──
     _removeSpeedLines: function () {
-      if (this.speedLineGroup) {
-        const cam = this.cameraEl?.object3D;
-        cam?.remove(this.speedLineGroup);
-        this.speedLineGroup.children.forEach((line: any) => line.geometry.dispose());
-        this.speedLineMat?.dispose();
-        this.speedLineGroup = null;
-        this.speedLineMat   = null;
+      if (!this.speedLineActive) return;
+      this.speedLineActive = false;
+      const canvas = this.speedLineCanvas as HTMLCanvasElement;
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        ctx?.clearRect(0, 0, canvas.width, canvas.height);
       }
     },
 
     remove: function () {
-      // コンポーネント削除時にクリーンアップ
       this._removeSpeedLines();
     },
 
@@ -229,13 +177,44 @@ export function registerPlayerMovementComponent() {
       const dt = deltaMs / 1000;
       const pos = this.el.object3D.position;
 
-      // ── 集中線フェードアウト（tick内で管理、rAF不使用） ──
-      if (this.speedLineGroup && this.speedLineMat) {
+      // ── 集中線フェードアウト（2D Canvas、tick内で管理） ──
+      if (this.speedLineActive) {
         this.speedLineElapsed += deltaMs;
         const t = Math.min(this.speedLineElapsed / this.speedLineDur, 1);
-        this.speedLineMat.opacity = 0.95 * (1 - t * t); // easeOutQuad
-        if (t >= 1) {
-          this._removeSpeedLines();
+        const opacity = 0.85 * (1 - t * t); // easeOutQuad
+
+        const canvas = this.speedLineCanvas as HTMLCanvasElement;
+        if (canvas) {
+          const ctx = canvas.getContext('2d')!;
+          const W = canvas.width;
+          const H = canvas.height;
+          const cx = W / 2;
+          const cy = H / 2;
+
+          ctx.clearRect(0, 0, W, H);
+
+          if (t < 1) {
+            ctx.globalAlpha = opacity;
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth   = 1.5;
+            ctx.lineCap     = 'round';
+
+            for (const seed of this.speedLineSeeds) {
+              // 端の点: 画面の中心から seed.r * 半対角線分の距離を angle 方向に
+              // 楕円形（アスペクト比反映）で画面端をなぞる
+              const halfW = cx * seed.r;
+              const halfH = cy * seed.r;
+              const ex = cx + Math.cos(seed.angle) * halfW;
+              const ey = cy + Math.sin(seed.angle) * halfH;
+
+              ctx.beginPath();
+              ctx.moveTo(ex, ey);
+              ctx.lineTo(cx + seed.cx, cy + seed.cy);
+              ctx.stroke();
+            }
+          } else {
+            this._removeSpeedLines();
+          }
         }
       }
 

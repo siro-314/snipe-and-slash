@@ -72,10 +72,23 @@
       transform: scale(1.1);
       box-shadow: 0 0 50px rgba(0, 212, 255, 0.8);
     }
+
+    /* 集中線オーバーレイ: シーンの上に全画面で重ねる */
+    #speedline-overlay {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none; /* クリック・タップを透過 */
+      z-index: 500;         /* HUD(1000)より下、シーン(0)より上 */
+    }
   </style>
 </head>
 
 <body>
+  <!-- 集中線エフェクト用オーバーレイ canvas（A-Frameシーンの上に重なる） -->
+  <canvas id="speedline-overlay"></canvas>
+
   <!-- スタート画面 -->
   <div id="startScreen">
     <h1>⚔️ SNIPE & SLASH 🏹</h1>
