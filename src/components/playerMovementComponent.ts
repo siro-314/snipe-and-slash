@@ -20,11 +20,12 @@
 export function registerPlayerMovementComponent() {
   AFRAME.registerComponent('player-movement', {
     schema: {
-      jumpForce:    { type: 'number', default: 6.0 },   // ジャンプ初速 (m/s)
-      gravity:      { type: 'number', default: 16.0 },  // 重力加速度 (m/s²)
-      groundY:      { type: 'number', default: 0.0 },   // 地面Y座標
-      dashDistance: { type: 'number', default: 8.0 },   // 縮地移動距離 (m)
-      dashDuration: { type: 'number', default: 150 },   // 縮地にかける時間 (ms)
+      jumpForce:         { type: 'number', default: 6.0 },   // ジャンプ初速 (m/s)
+      gravity:           { type: 'number', default: 16.0 },  // 重力加速度 (m/s²)
+      groundY:           { type: 'number', default: 0.0 },   // 地面Y座標
+      dashDistance:      { type: 'number', default: 8.0 },   // 縮地移動距離 (m)
+      dashDuration:      { type: 'number', default: 100 },   // 縮地移動時間 (ms) ← 鋭く
+      dashStunDuration:  { type: 'number', default: 350 },   // 着地硬直時間 (ms) ← 技感
     },
 
     init: function () {
@@ -44,12 +45,16 @@ export function registerPlayerMovementComponent() {
       // スティック入力を保持（縮地方向決定に使用）
       this.stickInput = { x: 0, y: 0 };
 
-      // 集中線エフェクト管理（Three.js Mesh、カメラの子として追加するVR正攻法）
-      this.vignetteRing     = null;  // Three.Mesh: ドーナツ型リング
+      // Vignetteエフェクト管理（Three.js Mesh、カメラの子として追加するVR正攻法）
+      this.vignetteRing     = null;  // Three.Mesh: RingGeometryドーナツ型
       this.vignetteMat      = null;  // Three.MeshBasicMaterial
       this.speedLineElapsed = 0;
-      this.speedLineDur     = 0;
+      this.speedLineDur     = 0;     // dashDuration + dashStunDuration の合計
       this.speedLineActive  = false;
+
+      // 硬直管理
+      this.isStunned     = false;
+      this.stunElapsed   = 0;
 
       // 右手: Aボタン
       const rightHand = document.getElementById('rightHand');
@@ -73,11 +78,14 @@ export function registerPlayerMovementComponent() {
     },
 
     _onAButton: function () {
+      // 硬直中は全入力を無視
+      if (this.isStunned) return;
+
       if (this.isGrounded) {
         // 地上 → ジャンプ
         this.verticalVelocity = this.data.jumpForce;
         this.isGrounded = false;
-        this.canDash = true; // 次のAボタンで縮地可能に
+        this.canDash = true;
       } else if (this.canDash && !this.isDashing) {
         // 空中 → 縮地
         this._startDash();
@@ -124,60 +132,45 @@ export function registerPlayerMovementComponent() {
       this.isDashing    = true;
       this.dashProgress = 0;
 
-      // 集中線エフェクト開始（tick管理）
+      // Vignetteエフェクト開始（移動+硬直の合計時間でフェード）
       this._initSpeedLines();
     },
 
-    // ── 集中線エフェクト：初期化 ──────────────────────────────────────
-    // カメラの子としてラインをアタッチするVR正攻法。
-    // ラインはカメラのローカル空間で「画面端の点 → 中心付近」に向かう放射線。
-    // RingGeometryと同じ方式なのでWebXR両目レンダリングで正しく表示される。
+    // ── Vignetteエフェクト：初期化 ──────────────────────────────────────
+    // カメラの子としてRingGeometry（ドーナツ型）をアタッチするVR正攻法。
+    // 画面周辺を白く覆い、移動+硬直の合計時間でじわっとフェードアウト。
+    // 「技感」のある縮地を演出するため、移動は鋭く・硬直中にVignetteが消えていく。
     _initSpeedLines: function () {
       const cam = this.cameraEl?.object3D;
       if (!cam) return;
 
       this._removeSpeedLines();
 
-      const LINE_COUNT = 32;
-      const Z          = -0.5;    // カメラから0.5m前の平面に描く
-      // Quest2 FOV≒90°: tan(45°)*0.5 = 0.5m が画面端
-      // 外端は画面外まで（0.7）、内端は中央付近（0.05）
-      const OUTER_R    = 0.7;    // 線の始点（画面端より外側）
-      const INNER_R    = 0.05;   // 線の終点（中央付近）
-
-      const positions: number[] = [];
-
-      for (let i = 0; i < LINE_COUNT; i++) {
-        // 少しランダムに角度をばらつかせて自然な集中線に
-        const angle  = (i / LINE_COUNT) * Math.PI * 2 + (Math.random() - 0.5) * 0.18;
-        const rOuter = OUTER_R * (0.75 + Math.random() * 0.25); // 外端のばらつき
-        const rInner = INNER_R * (0.5 + Math.random() * 0.5);   // 内端のばらつき
-
-        // 始点（外端）
-        positions.push(Math.cos(angle) * rOuter, Math.sin(angle) * rOuter, Z);
-        // 終点（中心付近）
-        positions.push(Math.cos(angle) * rInner, Math.sin(angle) * rInner, Z);
-      }
-
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-
-      const mat = new THREE.LineBasicMaterial({
-        color:      0xffffff,
+      // ドーナツ型リング: 内側（視界中心）は透明、外側（画面端）が見える
+      const geo = new THREE.RingGeometry(
+        0.38,  // innerRadius: 中央の穴のサイズ（視界が見える範囲）
+        1.2,   // outerRadius: 画面外まで確実にカバー
+        64     // segments
+      );
+      const mat = new THREE.MeshBasicMaterial({
+        color:       0xffffff,
         transparent: true,
-        opacity:    0.9,
-        depthTest:  false,
-        depthWrite: false,
+        opacity:     0.75,
+        depthTest:   false,
+        depthWrite:  false,
+        side:        THREE.DoubleSide,
       });
 
-      const lines = new THREE.LineSegments(geo, mat);
-      lines.renderOrder = 999;
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.renderOrder = 999;
+      mesh.position.set(0, 0, -0.5); // カメラから0.5m前
 
-      cam.add(lines);
-      this.vignetteRing     = lines;
+      cam.add(mesh);
+      this.vignetteRing     = mesh;
       this.vignetteMat      = mat;
       this.speedLineElapsed = 0;
-      this.speedLineDur     = this.data.dashDuration;
+      // 移動時間 + 硬直時間の合計でフェードアウト
+      this.speedLineDur     = this.data.dashDuration + this.data.dashStunDuration;
       this.speedLineActive  = true;
     },
 
@@ -202,13 +195,23 @@ export function registerPlayerMovementComponent() {
       const dt = deltaMs / 1000;
       const pos = this.el.object3D.position;
 
-      // ── 集中線フェードアウト（tick内で管理） ──
+      // ── Vignetteフェードアウト（移動+硬直の合計時間） ──
       if (this.speedLineActive && this.vignetteMat) {
         this.speedLineElapsed += deltaMs;
         const t = Math.min(this.speedLineElapsed / this.speedLineDur, 1);
-        this.vignetteMat.opacity = 0.85 * (1 - t * t); // easeOutQuad
+        // easeOutQuad: 最初は濃く残り、後半でじわっと消える
+        this.vignetteMat.opacity = 0.75 * (1 - t * t);
         if (t >= 1) {
           this._removeSpeedLines();
+        }
+      }
+
+      // ── 硬直管理（ダッシュ移動完了後に開始） ──
+      if (this.isStunned) {
+        this.stunElapsed += deltaMs;
+        if (this.stunElapsed >= this.data.dashStunDuration) {
+          this.isStunned   = false;
+          this.stunElapsed = 0;
         }
       }
 
@@ -217,7 +220,10 @@ export function registerPlayerMovementComponent() {
         this.dashProgress += deltaMs / this.data.dashDuration;
         if (this.dashProgress >= 1) {
           this.dashProgress = 1;
-          this.isDashing = false;
+          this.isDashing    = false;
+          // 移動完了 → 硬直開始
+          this.isStunned   = true;
+          this.stunElapsed = 0;
         }
         const t = 1 - (1 - this.dashProgress) * (1 - this.dashProgress);
         pos.x = this.dashFrom.x + (this.dashTo.x - this.dashFrom.x) * t;
@@ -232,10 +238,12 @@ export function registerPlayerMovementComponent() {
         if (pos.y <= this.data.groundY) {
           pos.y = this.data.groundY;
           this.verticalVelocity = 0;
-          this.isGrounded = true;
-          this.canDash    = false;
-          this.isDashing  = false;
-          this._removeSpeedLines(); // 着地時も確実にクリーンアップ
+          this.isGrounded  = true;
+          this.canDash     = false;
+          this.isDashing   = false;
+          this.isStunned   = false;
+          this.stunElapsed = 0;
+          this._removeSpeedLines();
         }
       }
     }
