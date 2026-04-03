@@ -12,8 +12,10 @@
  *   - movement-controlsと共存（Y座標のみ独自管理）
  *   - 縮地はスティック入力 or カメラforwardの水平方向に dashDistance 移動
  *   - 地面判定は Y <= GROUND_Y で簡易管理
- *   - 集中線エフェクトはrequestAnimationFrameを使わずtick内で管理（XR環境でのバグ回避）
- *   - FOVはハードウェアから実際に取得して画面端の座標を計算
+ *   - 集中線エフェクト: カメラの子としてThree.js MeshをアタッチするVR正攻法
+ *     HTMLオーバーレイはVRモード中HMDに映らないため使えない（WebXR仕様上の制約）
+ *     RingGeometryでドーナツ型メッシュをカメラの子に置くと両目に正しくレンダリングされる
+ *     参考: https://discourse.threejs.org/t/how-to-modify-individually-the-frames-rendered-in-left-right-eyes-in-vr/60576
  */
 export function registerPlayerMovementComponent() {
   AFRAME.registerComponent('player-movement', {
@@ -40,16 +42,14 @@ export function registerPlayerMovementComponent() {
       this.cameraEl = this.el.querySelector('[camera]');
 
       // スティック入力を保持（縮地方向決定に使用）
-      // x: 左右, y: 前後（A-Frameのthumbstickmoved準拠）
       this.stickInput = { x: 0, y: 0 };
 
-      // 集中線エフェクト管理（2D HTMLCanvas方式、tick内でフェード）
-      this.speedLineCanvas  = document.getElementById('speedline-overlay') as HTMLCanvasElement | null;
+      // 集中線エフェクト管理（Three.js Mesh、カメラの子として追加するVR正攻法）
+      this.vignetteRing     = null;  // Three.Mesh: ドーナツ型リング
+      this.vignetteMat      = null;  // Three.MeshBasicMaterial
       this.speedLineElapsed = 0;
       this.speedLineDur     = 0;
       this.speedLineActive  = false;
-      // 線の定義を一度だけ生成して使い回す（毎フレームの乱数を避けるため）
-      this.speedLineSeeds   = [] as Array<{ angle: number; r: number; cx: number; cy: number }>;
 
       // 右手: Aボタン
       const rightHand = document.getElementById('rightHand');
@@ -128,44 +128,58 @@ export function registerPlayerMovementComponent() {
       this._initSpeedLines();
     },
 
-    // ── 集中線エフェクト：初期化（ダッシュ発動時に1回だけ呼ぶ） ──────────
-    // HTMLCanvasに2Dで描画するのでThree.js / WebXRのカメラ座標系と完全に無関係。
-    // 画面端＝canvasの端なので位置がズレることがない。
+    // ── 集中線エフェクト：初期化 ──────────────────────────────────────
+    // カメラの子としてドーナツ型（RingGeometry）Meshを追加する。
+    // カメラの子にすることで両目に正しくレンダリングされる（WebXR VR正攻法）。
+    // 外側を白・半透明にして画面端に白いフラッシュを出す。
+    // depthTest:falseで常に最前面に表示。
     _initSpeedLines: function () {
-      const canvas = this.speedLineCanvas as HTMLCanvasElement;
-      if (!canvas) return;
+      const cam = this.cameraEl?.object3D;
+      if (!cam) return;
 
-      // canvas サイズをウィンドウに合わせる
-      canvas.width  = window.innerWidth;
-      canvas.height = window.innerHeight;
+      // 前のエフェクトが残っていれば即削除
+      this._removeSpeedLines();
 
-      const LINE_COUNT = 32;
-      const EDGE_RATIO = 0.82; // 画面端の何割の位置から線を開始するか
+      // カメラの直前に置くZ距離（小さいほどFOVを大きく覆う）
+      const Z_DIST    = -0.5;   // カメラから0.5m前
+      // RingGeometryの内径・外径（この距離でのFOVをカバーするよう調整）
+      // Quest2のFOV≈90°: tan(45°)*0.5 ≈ 0.5m → 外径0.8でほぼ全画面、内径0.4で中心を透過
+      const innerR    = 0.38;   // 内径（中心の透明部分）
+      const outerR    = 1.2;    // 外径（画面外まで確実にカバー）
+      const segments  = 64;
 
-      // 線ごとのランダムな形状をシードとして保存（tick内で毎回再計算しない）
-      this.speedLineSeeds = [];
-      for (let i = 0; i < LINE_COUNT; i++) {
-        this.speedLineSeeds.push({
-          angle: (i / LINE_COUNT) * Math.PI * 2 + (Math.random() - 0.5) * 0.15,
-          r:     EDGE_RATIO + Math.random() * (1.0 - EDGE_RATIO), // EDGE_RATIO〜1.0の範囲
-          cx:    (Math.random() - 0.5) * 8,  // 収束点の微小オフセット(px)
-          cy:    (Math.random() - 0.5) * 8,
-        });
-      }
+      const geo = new THREE.RingGeometry(innerR, outerR, segments);
+      const mat = new THREE.MeshBasicMaterial({
+        color:       0xffffff,
+        transparent: true,
+        opacity:     0.85,
+        side:        THREE.FrontSide,
+        depthTest:   false,
+        depthWrite:  false,
+      });
 
-      this.speedLineActive  = true;
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(0, 0, Z_DIST);
+      mesh.renderOrder = 999;
+
+      cam.add(mesh);
+      this.vignetteRing     = mesh;
+      this.vignetteMat      = mat;
       this.speedLineElapsed = 0;
       this.speedLineDur     = this.data.dashDuration;
+      this.speedLineActive  = true;
     },
 
-    // ── 集中線の強制クリア ──
+    // ── 集中線の強制削除 ──
     _removeSpeedLines: function () {
-      if (!this.speedLineActive) return;
-      this.speedLineActive = false;
-      const canvas = this.speedLineCanvas as HTMLCanvasElement;
-      if (canvas) {
-        const ctx = canvas.getContext('2d');
-        ctx?.clearRect(0, 0, canvas.width, canvas.height);
+      if (this.vignetteRing) {
+        const cam = this.cameraEl?.object3D;
+        cam?.remove(this.vignetteRing);
+        this.vignetteRing.geometry.dispose();
+        this.vignetteMat.dispose();
+        this.vignetteRing    = null;
+        this.vignetteMat     = null;
+        this.speedLineActive = false;
       }
     },
 
@@ -177,44 +191,13 @@ export function registerPlayerMovementComponent() {
       const dt = deltaMs / 1000;
       const pos = this.el.object3D.position;
 
-      // ── 集中線フェードアウト（2D Canvas、tick内で管理） ──
-      if (this.speedLineActive) {
+      // ── 集中線フェードアウト（tick内で管理） ──
+      if (this.speedLineActive && this.vignetteMat) {
         this.speedLineElapsed += deltaMs;
         const t = Math.min(this.speedLineElapsed / this.speedLineDur, 1);
-        const opacity = 0.85 * (1 - t * t); // easeOutQuad
-
-        const canvas = this.speedLineCanvas as HTMLCanvasElement;
-        if (canvas) {
-          const ctx = canvas.getContext('2d')!;
-          const W = canvas.width;
-          const H = canvas.height;
-          const cx = W / 2;
-          const cy = H / 2;
-
-          ctx.clearRect(0, 0, W, H);
-
-          if (t < 1) {
-            ctx.globalAlpha = opacity;
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth   = 1.5;
-            ctx.lineCap     = 'round';
-
-            for (const seed of this.speedLineSeeds) {
-              // 端の点: 画面の中心から seed.r * 半対角線分の距離を angle 方向に
-              // 楕円形（アスペクト比反映）で画面端をなぞる
-              const halfW = cx * seed.r;
-              const halfH = cy * seed.r;
-              const ex = cx + Math.cos(seed.angle) * halfW;
-              const ey = cy + Math.sin(seed.angle) * halfH;
-
-              ctx.beginPath();
-              ctx.moveTo(ex, ey);
-              ctx.lineTo(cx + seed.cx, cy + seed.cy);
-              ctx.stroke();
-            }
-          } else {
-            this._removeSpeedLines();
-          }
+        this.vignetteMat.opacity = 0.85 * (1 - t * t); // easeOutQuad
+        if (t >= 1) {
+          this._removeSpeedLines();
         }
       }
 
