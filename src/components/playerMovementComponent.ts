@@ -96,9 +96,9 @@ export function registerPlayerMovementComponent() {
       let dashDir: any;
 
       if (Math.abs(sx) > STICK_THRESHOLD || Math.abs(sy) > STICK_THRESHOLD) {
-        // スティック入力をカメラの水平向きで回転させてワールド方向に変換
-        // A-Frameのy入力: -1=前、+1=後ろ なので前方をZ-方向にマップ
-        const stickLocal = new THREE.Vector3(sx, 0, -sy); // ローカル前方=Z-
+        // A-Frameのthumbstickmoved: スティック前倒し=y マイナス、後ろ倒し=y プラス
+        // ワールドのZ-方向（前方）に対応させるには sy をそのまま使う（符号反転不要）
+        const stickLocal = new THREE.Vector3(sx, 0, sy); // sy: 前倒し=-1 → Z+方向なので反転なし
         stickLocal.normalize();
         dashDir = stickLocal.applyQuaternion(camQuat);
         dashDir.y = 0;
@@ -140,10 +140,12 @@ export function registerPlayerMovementComponent() {
       // WebXR環境: renderer.xr.getCamera() からProjectionMatrixを取得してtanFOVを逆算
       // 非XR環境: scene.cameraのfovプロパティを使用
       // どちらも「ニア平面z=-1での端の座標」を求めてEDGE_RATIOで内側に絞る
-      const EDGE_RATIO  = 0.80; // 画面端の何割に線を出すか（0.8=端から20%内側まで）
+      const EDGE_RATIO  = 0.80; // 画面端の何割に線を出すか（0.8=画面端の80%位置）
       const LINE_COUNT  = 28;
-      const NEAR_Z      = -0.12; // 収束点のZ（カメラローカル、小さいほど近い）
-      const FAR_Z       = -0.10; // 開始点のZ（収束点より少し遠い）
+      // z値は「計算用の投影面」として使う。depthTestオフなので実際の描画位置は関係ない。
+      // tanFOV * |FAR_Z| で端の座標が決まるので、FAR_Z を大きくするほど端が広がる。
+      const FAR_Z       = -1.0;  // 開始点Z（端の座標計算基準。大きいほど端に広がる）
+      const NEAR_Z      = -0.5;  // 収束点Z（中心に向かう方向）
       const duration    = this.data.dashDuration;
 
       let tanHalfFovY = Math.tan((75 / 2) * Math.PI / 180); // デフォルト75°
