@@ -46,8 +46,9 @@ export function registerPlayerMovementComponent() {
       this.stickInput = { x: 0, y: 0 };
 
       // Vignetteエフェクト管理（Three.js Mesh、カメラの子として追加するVR正攻法）
-      this.vignetteRing     = null;  // Three.Mesh: RingGeometryドーナツ型
-      this.vignetteMat      = null;  // Three.MeshBasicMaterial
+      this.vignetteRing     = null;
+      this.vignetteMat      = null;
+      this.vignetteMats     = [];   // グラデーション用: 複数マテリアル
       this.speedLineElapsed = 0;
       this.speedLineDur     = 0;     // dashDuration + dashStunDuration の合計
       this.speedLineActive  = false;
@@ -146,28 +147,43 @@ export function registerPlayerMovementComponent() {
 
       this._removeSpeedLines();
 
-      // ドーナツ型リング: 内側（視界中心）は透明、外側（画面端）が見える
-      const geo = new THREE.RingGeometry(
-        0.38,  // innerRadius: 中央の穴のサイズ（視界が見える範囲）
-        1.2,   // outerRadius: 画面外まで確実にカバー
-        64     // segments
-      );
-      const mat = new THREE.MeshBasicMaterial({
-        color:       0x000000,
-        transparent: true,
-        opacity:     0.75,
-        depthTest:   false,
-        depthWrite:  false,
-        side:        THREE.DoubleSide,
-      });
+      // グラデーションVignette: 複数のリングを重ねてopacityを段階的に変化させる
+      // 外側（不透明）→ 内側（透明）のグラデーションで境目をなくす
+      const LAYERS = [
+        { inner: 0.90, outer: 1.20, opacity: 1.00 }, // 最外: 完全不透明
+        { inner: 0.72, outer: 0.92, opacity: 0.80 }, // 外
+        { inner: 0.55, outer: 0.74, opacity: 0.55 }, // 中外
+        { inner: 0.40, outer: 0.57, opacity: 0.28 }, // 中内
+        { inner: 0.28, outer: 0.42, opacity: 0.10 }, // 内: ほぼ透明
+      ];
 
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.renderOrder = 999;
-      mesh.position.set(0, 0, -0.5); // カメラから0.5m前
+      const group = new THREE.Group();
+      const mats: any[] = [];
 
-      cam.add(mesh);
-      this.vignetteRing     = mesh;
-      this.vignetteMat      = mat;
+      for (const layer of LAYERS) {
+        const geo = new THREE.RingGeometry(layer.inner, layer.outer, 64);
+        const mat = new THREE.MeshBasicMaterial({
+          color:      0x000000,
+          transparent: true,
+          opacity:    layer.opacity,
+          depthTest:  false,
+          depthWrite: false,
+          side:       THREE.DoubleSide,
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.renderOrder = 999;
+        group.add(mesh);
+        mats.push(mat);
+      }
+
+      group.position.set(0, 0, -0.5);
+      cam.add(group);
+
+      // vignetteRingにgroupを、vignetteMatsに配列を保持
+      this.vignetteRing  = group;
+      this.vignetteMats  = mats;
+      // vignetteMat（単数）はフェード互換のためダミー参照
+      this.vignetteMat   = mats[0];
       this.speedLineElapsed = 0;
       // 移動時間 + 硬直時間の合計でフェードアウト
       this.speedLineDur     = this.data.dashDuration + this.data.dashStunDuration;
@@ -179,10 +195,14 @@ export function registerPlayerMovementComponent() {
       if (this.vignetteRing) {
         const cam = this.cameraEl?.object3D;
         cam?.remove(this.vignetteRing);
-        this.vignetteRing.geometry.dispose();
-        this.vignetteMat.dispose();
+        // グループ内の全メッシュを破棄
+        this.vignetteRing.traverse((child: any) => {
+          if (child.geometry) child.geometry.dispose();
+});
+        for (const mat of (this.vignetteMats || [])) mat.dispose();
         this.vignetteRing    = null;
         this.vignetteMat     = null;
+        this.vignetteMats    = [];
         this.speedLineActive = false;
       }
     },
@@ -196,11 +216,14 @@ export function registerPlayerMovementComponent() {
       const pos = this.el.object3D.position;
 
       // ── Vignetteフェードアウト（移動+硬直の合計時間） ──
-      if (this.speedLineActive && this.vignetteMat) {
+      if (this.speedLineActive && this.vignetteMats?.length) {
         this.speedLineElapsed += deltaMs;
         const t = Math.min(this.speedLineElapsed / this.speedLineDur, 1);
-        // easeOutQuad: 最初は濃く残り、後半でじわっと消える
-        this.vignetteMat.opacity = 0.75 * (1 - t * t);
+        const ease = 1 - t * t; // easeOutQuad
+        const BASE_OPACITIES = [1.00, 0.80, 0.55, 0.28, 0.10];
+        for (let i = 0; i < this.vignetteMats.length; i++) {
+          this.vignetteMats[i].opacity = BASE_OPACITIES[i] * ease;
+        }
         if (t >= 1) {
           this._removeSpeedLines();
         }
