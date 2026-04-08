@@ -154,8 +154,10 @@ export function registerPlayerMovementComponent() {
       const mat = new THREE.ShaderMaterial({
         uniforms: {
           uOpacity:   { value: 1.0 },
-          uInnerEdge: { value: 0.28 }, // グラデーション開始（中心側）
-          uOuterEdge: { value: 0.55 }, // グラデーション終了（端側）
+          uInnerEdge: { value: 0.35 }, // グラデーション開始（ここより内側は透明）
+          uOuterEdge: { value: 0.65 }, // グラデーション終了（ここより外側は黒）
+          // UV中心からの距離: 0.5=円の端、0.707=四隅
+          // outerEdgeを0.65にすると円の端〜四隅の間でグラデーションが終わる
         },
         vertexShader: `
           varying vec2 vUv;
