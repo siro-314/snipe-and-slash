@@ -147,43 +147,50 @@ export function registerPlayerMovementComponent() {
 
       this._removeSpeedLines();
 
-      // グラデーションVignette: 複数のリングを重ねてopacityを段階的に変化させる
-      // 外側（不透明）→ 内側（透明）のグラデーションで境目をなくす
-      const LAYERS = [
-        { inner: 0.90, outer: 1.20, opacity: 1.00 }, // 最外: 完全不透明
-        { inner: 0.72, outer: 0.92, opacity: 0.80 }, // 外
-        { inner: 0.55, outer: 0.74, opacity: 0.55 }, // 中外
-        { inner: 0.40, outer: 0.57, opacity: 0.28 }, // 中内
-        { inner: 0.28, outer: 0.42, opacity: 0.10 }, // 内: ほぼ透明
-      ];
+      // ShaderMaterialで真のグラデーションVignette
+      // PlaneGeometryを全画面サイズで置き、フラグメントシェーダーで
+      // 中心からの距離に応じてsmoothstepでalpha計算 → 完全に滑らかなグラデーション
+      const geo = new THREE.PlaneGeometry(4, 4); // カメラから0.5m前で画面外をカバー
+      const mat = new THREE.ShaderMaterial({
+        uniforms: {
+          uOpacity:   { value: 1.0 },
+          uInnerEdge: { value: 0.28 }, // グラデーション開始（中心側）
+          uOuterEdge: { value: 0.55 }, // グラデーション終了（端側）
+        },
+        vertexShader: `
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: `
+          uniform float uOpacity;
+          uniform float uInnerEdge;
+          uniform float uOuterEdge;
+          varying vec2 vUv;
+          void main() {
+            // UV中心(0.5, 0.5)からの距離を計算、アスペクト比補正なし（正円）
+            float dist = distance(vUv, vec2(0.5));
+            // smoothstep: innerEdge以内は透明、outerEdge以上は黒、その間は滑らか
+            float alpha = smoothstep(uInnerEdge, uOuterEdge, dist) * uOpacity;
+            gl_FragColor = vec4(0.0, 0.0, 0.0, alpha);
+          }
+        `,
+        transparent: true,
+        depthTest:   false,
+        depthWrite:  false,
+        side:        THREE.DoubleSide,
+      });
 
-      const group = new THREE.Group();
-      const mats: any[] = [];
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.renderOrder = 999;
+      mesh.position.set(0, 0, -0.5);
 
-      for (const layer of LAYERS) {
-        const geo = new THREE.RingGeometry(layer.inner, layer.outer, 64);
-        const mat = new THREE.MeshBasicMaterial({
-          color:      0x000000,
-          transparent: true,
-          opacity:    layer.opacity,
-          depthTest:  false,
-          depthWrite: false,
-          side:       THREE.DoubleSide,
-        });
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.renderOrder = 999;
-        group.add(mesh);
-        mats.push(mat);
-      }
-
-      group.position.set(0, 0, -0.5);
-      cam.add(group);
-
-      // vignetteRingにgroupを、vignetteMatsに配列を保持
-      this.vignetteRing  = group;
-      this.vignetteMats  = mats;
-      // vignetteMat（単数）はフェード互換のためダミー参照
-      this.vignetteMat   = mats[0];
+      cam.add(mesh);
+      this.vignetteRing  = mesh;
+      this.vignetteMats  = [mat];
+      this.vignetteMat   = mat; // フェード用参照
       this.speedLineElapsed = 0;
       // 移動時間 + 硬直時間の合計でフェードアウト
       this.speedLineDur     = this.data.dashDuration + this.data.dashStunDuration;
@@ -195,11 +202,8 @@ export function registerPlayerMovementComponent() {
       if (this.vignetteRing) {
         const cam = this.cameraEl?.object3D;
         cam?.remove(this.vignetteRing);
-        // グループ内の全メッシュを破棄
-        this.vignetteRing.traverse((child: any) => {
-          if (child.geometry) child.geometry.dispose();
-});
-        for (const mat of (this.vignetteMats || [])) mat.dispose();
+        this.vignetteRing.geometry.dispose();
+        this.vignetteMat?.dispose();
         this.vignetteRing    = null;
         this.vignetteMat     = null;
         this.vignetteMats    = [];
@@ -215,15 +219,12 @@ export function registerPlayerMovementComponent() {
       const dt = deltaMs / 1000;
       const pos = this.el.object3D.position;
 
-      // ── Vignetteフェードアウト（移動+硬直の合計時間） ──
-      if (this.speedLineActive && this.vignetteMats?.length) {
+      // ── Vignetteフェードアウト ──
+      if (this.speedLineActive && this.vignetteMat) {
         this.speedLineElapsed += deltaMs;
         const t = Math.min(this.speedLineElapsed / this.speedLineDur, 1);
         const ease = 1 - t * t; // easeOutQuad
-        const BASE_OPACITIES = [1.00, 0.80, 0.55, 0.28, 0.10];
-        for (let i = 0; i < this.vignetteMats.length; i++) {
-          this.vignetteMats[i].opacity = BASE_OPACITIES[i] * ease;
-        }
+        this.vignetteMat.uniforms.uOpacity.value = ease;
         if (t >= 1) {
           this._removeSpeedLines();
         }
