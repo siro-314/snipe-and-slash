@@ -140,7 +140,7 @@ export function registerPlayerMovementComponent() {
 
     // ── Vignetteエフェクト：初期化 ──────────────────────────────────────
     // カメラの子としてRingGeometry（ドーナツ型）をアタッチするVR正攻法。
-    // 画面周辺を白く覆い、移動+硬直の合計時間でじわっとフェードアウト。
+    // 画面周辺を暗くし、移動+硬直の合計時間でじわっとフェードアウト。
     // 「技感」のある縮地を演出するため、移動は鋭く・硬直中にVignetteが消えていく。
     _initSpeedLines: function () {
       const cam = this.cameraEl?.object3D;
@@ -165,7 +165,8 @@ export function registerPlayerMovementComponent() {
       }
       const vH = 2 * planeDist * Math.tan(fovRad / 2);
       const vW = vH * aspect;
-      const margin = 1.08;
+      // わずかに大きめにして、矩形プレーンの四隅で「外」がチラ見えするのを抑える
+      const margin = 1.12;
       const geo = new THREE.PlaneGeometry(vW * margin, vH * margin);
       const canvas = document.createElement('canvas');
       canvas.width = 512;
@@ -175,11 +176,17 @@ export function registerPlayerMovementComponent() {
 
       const cx = canvas.width / 2;
       const cy = canvas.height / 2;
-      const radiusInner = canvas.width * 0.22;
-      const radiusOuter = canvas.width * 0.49;
+      // 内側の完全透明ゾーンを小さく → 暗部が視界のより内側まで入る
+      // rInner→rOuter の帯を広く＋多段ストップで、透明度の変化をなだらかに
+      const radiusInner = canvas.width * 0.055;
+      const radiusOuter = canvas.width * 0.51;
       const grad = ctx.createRadialGradient(cx, cy, radiusInner, cx, cy, radiusOuter);
       grad.addColorStop(0.0, 'rgba(0,0,0,0.0)');
-      grad.addColorStop(0.65, 'rgba(0,0,0,0.0)');
+      grad.addColorStop(0.18, 'rgba(0,0,0,0.08)');
+      grad.addColorStop(0.38, 'rgba(0,0,0,0.22)');
+      grad.addColorStop(0.58, 'rgba(0,0,0,0.42)');
+      grad.addColorStop(0.76, 'rgba(0,0,0,0.64)');
+      grad.addColorStop(0.9, 'rgba(0,0,0,0.86)');
       grad.addColorStop(1.0, 'rgba(0,0,0,1.0)');
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = grad;
