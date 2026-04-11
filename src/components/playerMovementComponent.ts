@@ -17,6 +17,10 @@
  *     RingGeometryでドーナツ型メッシュをカメラの子に置くと両目に正しくレンダリングされる
  *     参考: https://discourse.threejs.org/t/how-to-modify-individually-the-frames-rendered-in-left-right-eyes-in-vr/60576
  */
+
+/** 集中線を2本並べたときの明るさ補正（初期 opacity と tick のフェードで共通） */
+const SPEED_LINE_PARALLEL_BRIGHT_MUL = 0.82;
+
 export function registerPlayerMovementComponent() {
   AFRAME.registerComponent('player-movement', {
     schema: {
@@ -176,8 +180,9 @@ export function registerPlayerMovementComponent() {
       }
       const vH = 2 * planeDist * Math.tan(fovRad / 2);
       const vW = vH * aspect;
-      // わずかに大きめにして、矩形プレーンの四隅で「外」がチラ見えするのを抑える
-      const margin = 1.12;
+      // 視野端・下向き視線でプレーン外がチラ見えないよう、FOV合わせより外側だけ広げる
+      // （Canvas の内側グラデは radiusInner / ストップは触らず、UVの「外周」側の余白だけ増やすイメージ）
+      const margin = 1.26;
       const geo = new THREE.PlaneGeometry(vW * margin, vH * margin);
       const canvas = document.createElement('canvas');
       canvas.width = 512;
@@ -247,7 +252,10 @@ export function registerPlayerMovementComponent() {
       fy = THREE.MathUtils.clamp(fy, -maxOffY, maxOffY);
 
       if (lineCount > 0) {
-        const pos = new Float32Array(lineCount * 2 * 3);
+        // WebGL の lineWidth は端末で 1px 固定になりがちなので、法線方向に2本並べて太さを擬似
+        const stripes = 2;
+        const pos = new Float32Array(lineCount * stripes * 2 * 3);
+        const halfThick = Math.min(halfW, halfH) * 0.0085;
         for (let i = 0; i < lineCount; i++) {
           const ang =
             (i / lineCount) * Math.PI * 2 + (Math.random() - 0.5) * (Math.PI / lineCount);
@@ -257,20 +265,34 @@ export function registerPlayerMovementComponent() {
           const inward = 0.38 + Math.random() * 0.22;
           const ix = ox + (fx - ox) * inward;
           const iy = oy + (fy - oy) * inward;
-          const p = i * 6;
-          pos[p + 0] = ox;
-          pos[p + 1] = oy;
-          pos[p + 2] = -lineDist;
-          pos[p + 3] = ix;
-          pos[p + 4] = iy;
-          pos[p + 5] = -lineDist;
+          let dx = ix - ox;
+          let dy = iy - oy;
+          let len = Math.sqrt(dx * dx + dy * dy);
+          if (len < 1e-5) {
+            len = 1;
+            dx = 1;
+            dy = 0;
+          }
+          const nx = (-dy / len) * halfThick;
+          const ny = (dx / len) * halfThick;
+          for (let s = 0; s < stripes; s++) {
+            const sign = s === 0 ? 1 : -1;
+            const base = (i * stripes + s) * 6;
+            pos[base + 0] = ox + nx * sign;
+            pos[base + 1] = oy + ny * sign;
+            pos[base + 2] = -lineDist;
+            pos[base + 3] = ix + nx * sign;
+            pos[base + 4] = iy + ny * sign;
+            pos[base + 5] = -lineDist;
+          }
         }
         const lineGeo = new THREE.BufferGeometry();
         lineGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
         const lineMat = new THREE.LineBasicMaterial({
           color: 0xffffff,
           transparent: true,
-          opacity: this.data.speedLineOpacity,
+          // 2本化で明るさが乗るので少し抑える（見た目の太さ優先）
+          opacity: this.data.speedLineOpacity * SPEED_LINE_PARALLEL_BRIGHT_MUL,
           depthTest: false,
           depthWrite: false,
         });
@@ -333,7 +355,8 @@ export function registerPlayerMovementComponent() {
         const ease = 1 - t * t; // easeOutQuad
         this.vignetteMat.opacity = ease;
         if (this.speedLineLineMat) {
-          this.speedLineLineMat.opacity = ease * this.data.speedLineOpacity;
+          this.speedLineLineMat.opacity =
+            ease * this.data.speedLineOpacity * SPEED_LINE_PARALLEL_BRIGHT_MUL;
         }
         if (t >= 1) {
           this._removeSpeedLines();
