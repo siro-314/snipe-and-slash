@@ -151,7 +151,22 @@ export function registerPlayerMovementComponent() {
       // CanvasTextureベースの滑らかなVignette。
       // ShaderMaterialは環境差で表示されないケースがあるため、
       // Quest系でも安定しやすいMeshBasicMaterial方式にする。
-      const geo = new THREE.PlaneGeometry(4, 4); // カメラから0.5m前で画面外をカバー
+      //
+      // 重要: プレーンを大きくしすぎると、視野に映るのがUV中心の狭い範囲だけになり、
+      // 放射グラデの「透明の内側」だけがサンプリングされて周辺の黒が一切見えない。
+      // カメラFOVと距離に合わせたサイズにする（旧4x4はそのため効果がゼロだった）。
+      const planeDist = 0.5;
+      const pc: any = this.cameraEl.getObject3D('camera');
+      let fovRad = THREE.MathUtils.degToRad(80);
+      let aspect = typeof window !== 'undefined' ? window.innerWidth / Math.max(1, window.innerHeight) : 1.6;
+      if (pc && pc.isPerspectiveCamera) {
+        fovRad = THREE.MathUtils.degToRad(pc.fov);
+        if (pc.aspect > 0) aspect = pc.aspect;
+      }
+      const vH = 2 * planeDist * Math.tan(fovRad / 2);
+      const vW = vH * aspect;
+      const margin = 1.08;
+      const geo = new THREE.PlaneGeometry(vW * margin, vH * margin);
       const canvas = document.createElement('canvas');
       canvas.width = 512;
       canvas.height = 512;
@@ -183,7 +198,7 @@ export function registerPlayerMovementComponent() {
 
       const mesh = new THREE.Mesh(geo, mat);
       mesh.renderOrder = 999;
-      mesh.position.set(0, 0, -0.5);
+      mesh.position.set(0, 0, -planeDist);
 
       cam.add(mesh);
       this.vignetteRing  = mesh;
