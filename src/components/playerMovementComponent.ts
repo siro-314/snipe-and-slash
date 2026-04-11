@@ -26,6 +26,10 @@ export function registerPlayerMovementComponent() {
       dashDistance:      { type: 'number', default: 8.0 },   // 縮地移動距離 (m)
       dashDuration:      { type: 'number', default: 100 },   // 縮地移動時間 (ms) ← 鋭く
       dashStunDuration:  { type: 'number', default: 350 },   // 着地硬直時間 (ms) ← 技感
+      /** 縮地時の集中線本数（控えめ推奨。ヴィネットと併用前提） */
+      speedLineCount:    { type: 'int', default: 14, min: 0 },
+      /** 集中線の最大不透明度（ヴィネットより下げると馴染む） */
+      speedLineOpacity:  { type: 'number', default: 0.14 },
     },
 
     init: function () {
@@ -45,11 +49,16 @@ export function registerPlayerMovementComponent() {
       // スティック入力を保持（縮地方向決定に使用）
       this.stickInput = { x: 0, y: 0 };
 
-      // Vignetteエフェクト管理（Three.js Mesh、カメラの子として追加するVR正攻法）
+      this._dashDirWorld = new THREE.Vector3();
+
+      // 縮地エフェクト（ヴィネット + 控えめ集中線）— カメラの子に Group でまとめる
+      this.dashEffectGroup  = null;
       this.vignetteRing     = null;
       this.vignetteMat      = null;
       this.vignetteMats     = [];   // Vignette用マテリアル管理
       this.vignetteTex      = null; // Vignette用テクスチャ
+      this.speedLineSeg     = null;
+      this.speedLineLineMat = null;
       this.speedLineElapsed = 0;
       this.speedLineDur     = 0;     // dashDuration + dashStunDuration の合計
       this.speedLineActive  = false;
@@ -134,7 +143,9 @@ export function registerPlayerMovementComponent() {
       this.isDashing    = true;
       this.dashProgress = 0;
 
-      // Vignetteエフェクト開始（移動+硬直の合計時間でフェード）
+      this._dashDirWorld.copy(dashDir);
+
+      // Vignette + 集中線（移動+硬直の合計時間でフェード）
       this._initSpeedLines();
     },
 
@@ -174,6 +185,9 @@ export function registerPlayerMovementComponent() {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
+      const effectGroup = new THREE.Group();
+      effectGroup.renderOrder = 998;
+
       const cx = canvas.width / 2;
       const cy = canvas.height / 2;
       // 内側の完全透明ゾーンを小さく → 暗部が視界のより内側まで入る
@@ -207,7 +221,68 @@ export function registerPlayerMovementComponent() {
       mesh.renderOrder = 999;
       mesh.position.set(0, 0, -planeDist);
 
-      cam.add(mesh);
+      effectGroup.add(mesh);
+
+      // ── 控えめな集中線（移動方向へ収束、密度低め・低不透明度）────────────
+      const lineDist = planeDist - 0.015;
+      const lineCount = Math.max(0, this.data.speedLineCount | 0);
+      const halfW = (vW * margin) * 0.5;
+      const halfH = (vH * margin) * 0.5;
+      const outerR = Math.sqrt(halfW * halfW + halfH * halfH) * 0.92;
+
+      const qWorld = new THREE.Quaternion();
+      this.cameraEl.object3D.getWorldQuaternion(qWorld);
+      const qInv = qWorld.clone().invert();
+      const dashL = this._dashDirWorld.clone().applyQuaternion(qInv);
+      let fx = 0;
+      let fy = 0;
+      const vz = dashL.z;
+      if (vz < -0.02) {
+        fx = (-lineDist * dashL.x) / vz;
+        fy = (-lineDist * dashL.y) / vz;
+      }
+      const maxOffX = halfW * 0.42;
+      const maxOffY = halfH * 0.42;
+      fx = THREE.MathUtils.clamp(fx, -maxOffX, maxOffX);
+      fy = THREE.MathUtils.clamp(fy, -maxOffY, maxOffY);
+
+      if (lineCount > 0) {
+        const pos = new Float32Array(lineCount * 2 * 3);
+        for (let i = 0; i < lineCount; i++) {
+          const ang =
+            (i / lineCount) * Math.PI * 2 + (Math.random() - 0.5) * (Math.PI / lineCount);
+          const radJ = 0.92 + (Math.random() - 0.5) * 0.06;
+          const ox = Math.cos(ang) * outerR * radJ;
+          const oy = Math.sin(ang) * outerR * radJ;
+          const inward = 0.38 + Math.random() * 0.22;
+          const ix = ox + (fx - ox) * inward;
+          const iy = oy + (fy - oy) * inward;
+          const p = i * 6;
+          pos[p + 0] = ox;
+          pos[p + 1] = oy;
+          pos[p + 2] = -lineDist;
+          pos[p + 3] = ix;
+          pos[p + 4] = iy;
+          pos[p + 5] = -lineDist;
+        }
+        const lineGeo = new THREE.BufferGeometry();
+        lineGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        const lineMat = new THREE.LineBasicMaterial({
+          color: 0xffffff,
+          transparent: true,
+          opacity: this.data.speedLineOpacity,
+          depthTest: false,
+          depthWrite: false,
+        });
+        const lines = new THREE.LineSegments(lineGeo, lineMat);
+        lines.renderOrder = 1000;
+        effectGroup.add(lines);
+        this.speedLineSeg     = lines;
+        this.speedLineLineMat = lineMat;
+      }
+
+      cam.add(effectGroup);
+      this.dashEffectGroup = effectGroup;
       this.vignetteRing  = mesh;
       this.vignetteMats  = [mat];
       this.vignetteMat   = mat; // フェード用参照
@@ -220,18 +295,27 @@ export function registerPlayerMovementComponent() {
 
     // ── 集中線の強制削除 ──
     _removeSpeedLines: function () {
-      if (this.vignetteRing) {
-        const cam = this.cameraEl?.object3D;
-        cam?.remove(this.vignetteRing);
-        this.vignetteRing.geometry.dispose();
-        this.vignetteMat?.dispose();
-        this.vignetteTex?.dispose();
-        this.vignetteRing    = null;
-        this.vignetteMat     = null;
-        this.vignetteMats    = [];
-        this.vignetteTex     = null;
+      if (!this.dashEffectGroup) {
         this.speedLineActive = false;
+        return;
       }
+      const cam = this.cameraEl?.object3D;
+      cam?.remove(this.dashEffectGroup);
+      this.dashEffectGroup = null;
+      this.vignetteRing?.geometry.dispose();
+      this.vignetteMat?.dispose();
+      this.vignetteTex?.dispose();
+      if (this.speedLineSeg) {
+        this.speedLineSeg.geometry.dispose();
+        this.speedLineLineMat?.dispose();
+      }
+      this.vignetteRing     = null;
+      this.vignetteMat      = null;
+      this.vignetteMats     = [];
+      this.vignetteTex      = null;
+      this.speedLineSeg     = null;
+      this.speedLineLineMat = null;
+      this.speedLineActive  = false;
     },
 
     remove: function () {
@@ -242,12 +326,15 @@ export function registerPlayerMovementComponent() {
       const dt = deltaMs / 1000;
       const pos = this.el.object3D.position;
 
-      // ── Vignetteフェードアウト ──
+      // ── Vignette + 集中線フェードアウト ──
       if (this.speedLineActive && this.vignetteMat) {
         this.speedLineElapsed += deltaMs;
         const t = Math.min(this.speedLineElapsed / this.speedLineDur, 1);
         const ease = 1 - t * t; // easeOutQuad
         this.vignetteMat.opacity = ease;
+        if (this.speedLineLineMat) {
+          this.speedLineLineMat.opacity = ease * this.data.speedLineOpacity;
+        }
         if (t >= 1) {
           this._removeSpeedLines();
         }
