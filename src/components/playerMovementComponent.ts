@@ -18,8 +18,8 @@
  *     参考: https://discourse.threejs.org/t/how-to-modify-individually-the-frames-rendered-in-left-right-eyes-in-vr/60576
  */
 
-/** 集中線を2本並べたときの明るさ補正（初期 opacity と tick のフェードで共通） */
-const SPEED_LINE_PARALLEL_BRIGHT_MUL = 0.82;
+/** 集中線を複数本並べたときの明るさ補正（初期 opacity と tick のフェードで共通） */
+const SPEED_LINE_PARALLEL_BRIGHT_MUL = 0.64;
 
 export function registerPlayerMovementComponent() {
   AFRAME.registerComponent('player-movement', {
@@ -31,9 +31,9 @@ export function registerPlayerMovementComponent() {
       dashDuration:      { type: 'number', default: 100 },   // 縮地移動時間 (ms) ← 鋭く
       dashStunDuration:  { type: 'number', default: 350 },   // 着地硬直時間 (ms) ← 技感
       /** 縮地時の集中線本数（控えめ推奨。ヴィネットと併用前提） */
-      speedLineCount:    { type: 'int', default: 14, min: 0 },
+      speedLineCount:    { type: 'int', default: 18, min: 0 },
       /** 集中線の最大不透明度（ヴィネットより下げると馴染む） */
-      speedLineOpacity:  { type: 'number', default: 0.14 },
+      speedLineOpacity:  { type: 'number', default: 0.19 },
     },
 
     init: function () {
@@ -182,7 +182,7 @@ export function registerPlayerMovementComponent() {
       const vW = vH * aspect;
       // 視野端・下向き視線でプレーン外がチラ見えないよう、FOV合わせより外側だけ広げる
       // （Canvas の内側グラデは radiusInner / ストップは触らず、UVの「外周」側の余白だけ増やすイメージ）
-      const margin = 1.26;
+      const margin = 1.38;
       const geo = new THREE.PlaneGeometry(vW * margin, vH * margin);
       const canvas = document.createElement('canvas');
       canvas.width = 512;
@@ -252,10 +252,11 @@ export function registerPlayerMovementComponent() {
       fy = THREE.MathUtils.clamp(fy, -maxOffY, maxOffY);
 
       if (lineCount > 0) {
-        // WebGL の lineWidth は端末で 1px 固定になりがちなので、法線方向に2本並べて太さを擬似
-        const stripes = 2;
+        // lineWidth が効かない端末向け: 法線方向に3本（-1,0,+1）で太さを擬似
+        const stripes = 3;
+        const stripeK = [-1, 0, 1];
         const pos = new Float32Array(lineCount * stripes * 2 * 3);
-        const halfThick = Math.min(halfW, halfH) * 0.0085;
+        const halfThick = Math.min(halfW, halfH) * 0.013;
         for (let i = 0; i < lineCount; i++) {
           const ang =
             (i / lineCount) * Math.PI * 2 + (Math.random() - 0.5) * (Math.PI / lineCount);
@@ -273,16 +274,20 @@ export function registerPlayerMovementComponent() {
             dx = 1;
             dy = 0;
           }
-          const nx = (-dy / len) * halfThick;
-          const ny = (dx / len) * halfThick;
+          const px = -dy / len;
+          const py = dx / len;
           for (let s = 0; s < stripes; s++) {
-            const sign = s === 0 ? 1 : -1;
+            const k = stripeK[s];
+            const oxk = ox + px * halfThick * k;
+            const oyk = oy + py * halfThick * k;
+            const ixk = ix + px * halfThick * k;
+            const iyk = iy + py * halfThick * k;
             const base = (i * stripes + s) * 6;
-            pos[base + 0] = ox + nx * sign;
-            pos[base + 1] = oy + ny * sign;
+            pos[base + 0] = oxk;
+            pos[base + 1] = oyk;
             pos[base + 2] = -lineDist;
-            pos[base + 3] = ix + nx * sign;
-            pos[base + 4] = iy + ny * sign;
+            pos[base + 3] = ixk;
+            pos[base + 4] = iyk;
             pos[base + 5] = -lineDist;
           }
         }
@@ -291,7 +296,7 @@ export function registerPlayerMovementComponent() {
         const lineMat = new THREE.LineBasicMaterial({
           color: 0xffffff,
           transparent: true,
-          // 2本化で明るさが乗るので少し抑える（見た目の太さ優先）
+          // 複数本化で明るさが乗るので抑える（太さ優先）
           opacity: this.data.speedLineOpacity * SPEED_LINE_PARALLEL_BRIGHT_MUL,
           depthTest: false,
           depthWrite: false,
