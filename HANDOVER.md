@@ -7,6 +7,7 @@ WebXRブラウザVRゲーム「SNIPE & SLASH」。剣＋弓のアクションゲ
 ## 2. ディレクトリマップと役割
 ```
 src/components/
+  playerMovementComponent.ts    # ジャンプ・縮地。ヴィネット＋集中線はカメラ子の dashEffectGroup
   weaponControllerComponent.ts  # 両手独立。triggerHeldフラグで発射後の弓維持を制御
   weapons/
     swordComponent.ts           # 剣＋弓。nockOffsetで握り判定位置管理。shootDirPitchで射出補正
@@ -14,7 +15,7 @@ src/components/
     playerArrowComponent.ts
   debug/
     bowDebugComponent.ts        # CALIBシステム全体を管理
-index.html                      # 両手にweapon-controller
+index.html                      # rig に player-movement、両手に weapon-controller
 ```
 
 ## 3. 技術選定と制約
@@ -28,7 +29,16 @@ index.html                      # 両手にweapon-controller
 
 ## 4. 現状と次の一手
 
-### ✅ コミット 599982c（最新）
+### 最新: 縮地エフェクト（2026-04-11 / `5da2d1b`）
+- **ファイル**: `src/components/playerMovementComponent.ts`（rig の `player-movement`）
+- **縮地**: `dashDuration` 100ms（移動）＋ `dashStunDuration` 350ms（硬直・入力不可）。硬直中も次の縮地不可。
+- **ヴィネット**: `CanvasTexture` に放射グラデを描画 → `PlaneGeometry`。`ShaderMaterial` は Quest 等で表示されない／巨大 Plane で UV 中心だけ見えて無効になる問題があったため不使用。プレーンは **カメラ FOV・aspect・距離 0.5m** から算出し、`margin`（約 **1.38**）で視野より一回り大きくし、下向き視線でも端が抜けにくくする。内側のグラデ形状（`radiusInner`・`addColorStop`）は別調整。
+- **集中線**: `LineSegments`＋**細い2本オフセット**（`lineWidth` が効かない端末向け）。**太さより線の長さ・内側への侵入**を優先。外周 `outerR` 係数 **0.98**、終点は収束点方向へ `inward` **0.52〜0.86**。移動方向はワールド→カメラローカルで収束点を計算。
+- **スキーマ**: `speedLineCount` 既定 18、`speedLineOpacity` 既定 0.19。`SPEED_LINE_PARALLEL_BRIGHT_MUL` で2本化の明るさ補正。
+
+以下、過去コミットの履歴メモ（参照用。最新は上記）。
+
+### ✅ コミット 599982c
 - **矢向き試行2回目**: `rotation.set(-PI/2, 0, 0)` — Y長軸→Z長軸を仮定
   - 前回(-PI/2, 0, PI/2)で変化なし → モデル長軸はYの可能性が高い
   - ダメなら次の候補: `(0, PI/2, 0)` `(PI/2, 0, 0)` `(0, -PI/2, 0)`
@@ -126,6 +136,6 @@ cd ~/Desktop/snipe-and-slash && git log --oneline -5 && npm run dev
 cd ~/Desktop/snipe-and-slash && git log --oneline -5 && npm run dev
 ```
 
-**本番URL**: https://playful-concha-6af59f.netlify.app
-**GitHub**: https://github.com/siro-314/snipe-and-slash
-**最終更新**: 2026-03-31 コミット 48f04ce
+**本番URL**: https://playful-concha-6af59f.netlify.app  
+**GitHub**: https://github.com/siro-314/snipe-and-slash  
+**最終更新**: 2026-04-11 コミット `5da2d1b`（縮地: ヴィネット＋集中線の現行仕様は §4 冒頭を参照）
